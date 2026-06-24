@@ -178,7 +178,7 @@ function App() {
       size: Math.random() * 8 + 4,
       left: `${Math.random() * 100}%`,
       top: `${Math.random() * 100}%`,
-      opacity: Math.random() * 0.3 + 0.12
+      opacity: Math.random() * 0.4 + 0.2
     }));
   });
 
@@ -336,6 +336,16 @@ function App() {
         repeatRefresh: true
       });
     });
+
+    return () => {
+      if (blob1Ref.current) gsap.killTweensOf(blob1Ref.current);
+      if (blob2Ref.current) gsap.killTweensOf(blob2Ref.current);
+      if (blob3Ref.current) gsap.killTweensOf(blob3Ref.current);
+      if (welcomeGlow1Ref.current) gsap.killTweensOf(welcomeGlow1Ref.current);
+      if (welcomeGlow2Ref.current) gsap.killTweensOf(welcomeGlow2Ref.current);
+      if (welcomeGlow3Ref.current) gsap.killTweensOf(welcomeGlow3Ref.current);
+      gsap.killTweensOf('.telemetry-node');
+    };
   }, [currentView, user]);
 
   // Sign up / Login logic
@@ -593,6 +603,7 @@ function App() {
     if (!matchingCase) {
       // Mock one up based on history values
       matchingCase = {
+        id: historyItem.id || 'history-' + Date.now(),
         name: historyItem.name,
         type: historyItem.type,
         size: '5.2 MB',
@@ -623,7 +634,7 @@ function App() {
   // Handle welcome landing view separately for full screen style
   if (currentView === 'welcome') {
     return (
-      <div className="dark-welcome-wrap" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '40px', position: 'relative' }}>
+      <div key="welcome-viewport" className="dark-welcome-wrap" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '40px', position: 'relative' }}>
         <div className="bg-grid"></div>
         <div ref={welcomeGlow1Ref} className="welcome-glow-1"></div>
         <div ref={welcomeGlow2Ref} className="welcome-glow-2"></div>
@@ -732,7 +743,7 @@ function App() {
   // Handle auth view separately for clean centered layout
   if (currentView === 'auth') {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '40px', backgroundColor: 'var(--primary-bg)', position: 'relative' }}>
+      <div key="auth-viewport" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '40px', backgroundColor: 'var(--primary-bg)', position: 'relative' }}>
         <div className="bg-grid"></div>
 
         <div style={{ maxWidth: '440px', width: '100%', zIndex: 5 }}>
@@ -769,7 +780,7 @@ function App() {
             }}>Diagnex</h2>
           </div>
 
-          <div className="glass-card focus-container" style={{ padding: '24px 28px', boxShadow: 'var(--shadow-lg)' }}>
+          <div className="glass-card focus-container" style={{ padding: '24px 28px', boxShadow: 'var(--shadow-lg)', transform: 'none', animation: 'none', transition: 'none' }}>
             <div className="focus-corner top-left"></div>
             <div className="focus-corner top-right"></div>
             <div className="focus-corner bottom-left"></div>
@@ -904,7 +915,7 @@ function App() {
 
   // Logged-in screens render inside the dashboard portal layout
   return (
-    <div className="app-container">
+    <div key="app-viewport" className="app-container">
       <div className="bg-grid"></div>
       <div ref={blob1Ref} className="organic-blob-1"></div>
       <div ref={blob2Ref} className="organic-blob-2"></div>
@@ -920,7 +931,7 @@ function App() {
             width: `${node.size}px`,
             height: `${node.size}px`,
             borderRadius: '50%',
-            backgroundColor: 'var(--mint)',
+            backgroundColor: 'var(--forest-green)',
             left: node.left,
             top: node.top,
             opacity: node.opacity,

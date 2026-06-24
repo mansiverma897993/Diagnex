@@ -127,20 +127,78 @@ body {
 /* Navigation Layout */
 .sidebar {
   width: 280px;
-  background-color: #ffffff;
-  border-right: 1px solid var(--panel-border);
+  background-color: var(--dark-green);
+  border-right: 1.5px solid rgba(255, 255, 255, 0.85);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 32px 24px;
+  padding: 24px;
   z-index: 10;
   flex-shrink: 0;
   box-shadow: 4px 0 24px rgba(27, 67, 50, 0.02);
 }
 
+/* Sidebar Dark Green UI Text and Icons Override */
+.sidebar .nav-logo-text {
+  color: #ffffff !important;
+}
+
+.sidebar .nav-logo-subtext {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+.sidebar .logo-svg {
+  fill: #ffffff !important;
+  color: #ffffff !important;
+}
+
+.sidebar .focus-corner {
+  border-color: #ffffff !important;
+}
+
+.sidebar .nav-group-label {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+.sidebar .nav-item {
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+
+.sidebar .nav-item:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+.sidebar .nav-item.active {
+  background-color: #ffffff !important;
+  color: var(--dark-green) !important;
+}
+
+.sidebar .user-profile-badge {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+.sidebar .user-avatar {
+  background-color: #ffffff !important;
+  color: var(--dark-green) !important;
+}
+
+.sidebar .user-name {
+  color: #ffffff !important;
+}
+
+.sidebar .user-role {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+.sidebar .text-center {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
 .main-content {
   flex-grow: 1;
-  padding: 48px;
+  padding: 24px 32px;
   position: relative;
   overflow-y: auto;
   max-height: 100vh;
@@ -153,7 +211,7 @@ body {
   .sidebar {
     width: 100%;
     border-right: none;
-    border-bottom: 1px solid var(--panel-border);
+    border-bottom: 1.5px solid rgba(255, 255, 255, 0.85);
     padding: 16px 24px;
     flex-direction: row;
     align-items: center;
@@ -618,7 +676,7 @@ p {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 40px;
+  margin-bottom: 24px;
 }
 
 @media (max-width: 768px) {
@@ -633,7 +691,7 @@ p {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 24px;
-  margin-bottom: 40px;
+  margin-bottom: 24px;
 }
 
 .stat-card {
@@ -701,7 +759,7 @@ p {
   background-color: #ffffff;
   border: 1px solid var(--panel-border);
   border-radius: 20px;
-  padding: 32px;
+  padding: 24px;
   box-shadow: var(--shadow-sm);
 }
 
@@ -721,7 +779,7 @@ p {
 }
 
 .scans-table td {
-  padding: 20px 14px;
+  padding: 12px 14px;
   font-size: 0.95rem;
   color: var(--text-primary);
   border-bottom: 1px solid var(--panel-border);
@@ -793,7 +851,7 @@ p {
   background-color: #ffffff;
   border: 1px solid var(--panel-border);
   border-radius: 20px;
-  padding: 32px;
+  padding: 24px;
   height: fit-content;
   box-shadow: var(--shadow-sm);
 }
@@ -1802,7 +1860,7 @@ p {
   position: absolute;
   width: 650px;
   height: 650px;
-  background: radial-gradient(circle, rgba(82, 183, 136, 0.2) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(45, 106, 79, 0.38) 0%, transparent 70%);
   top: -200px;
   right: -100px;
   z-index: 0;
@@ -1814,7 +1872,7 @@ p {
   position: absolute;
   width: 550px;
   height: 550px;
-  background: radial-gradient(circle, rgba(45, 106, 79, 0.25) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(27, 67, 50, 0.45) 0%, transparent 70%);
   bottom: -150px;
   left: -100px;
   z-index: 0;
@@ -1826,7 +1884,7 @@ p {
   position: absolute;
   width: 450px;
   height: 450px;
-  background: radial-gradient(circle, rgba(82, 183, 136, 0.14) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(82, 183, 136, 0.28) 0%, transparent 70%);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -1875,8 +1933,8 @@ p {
   position: absolute;
   width: 550px;
   height: 550px;
-  background: rgba(27, 67, 50, 0.15);
-  border: 2px solid rgba(27, 67, 50, 0.35);
+  background: rgba(27, 67, 50, 0.24);
+  border: 2px solid rgba(27, 67, 50, 0.55);
   border-radius: 50%;
   top: 10%;
   left: 30%;
@@ -1889,8 +1947,8 @@ p {
   position: absolute;
   width: 600px;
   height: 600px;
-  background: rgba(45, 106, 79, 0.28);
-  border: 2px solid rgba(45, 106, 79, 0.38);
+  background: rgba(45, 106, 79, 0.38);
+  border: 2px solid rgba(45, 106, 79, 0.58);
   border-radius: 50%;
   bottom: -150px;
   left: -150px;
@@ -1903,8 +1961,8 @@ p {
   position: absolute;
   width: 750px;
   height: 750px;
-  background: rgba(27, 67, 50, 0.18);
-  border: 2.5px solid rgba(27, 67, 50, 0.38);
+  background: rgba(27, 67, 50, 0.26);
+  border: 2.5px solid rgba(27, 67, 50, 0.58);
   border-radius: 50%;
   bottom: -200px;
   right: -50px;
