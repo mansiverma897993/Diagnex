@@ -48,6 +48,7 @@ const SAMPLE_CASES = [
     confidence: 94,
     diagnosis: 'NORMAL CHEST X-RAY. No focal airspace consolidation, pleural effusion, or pneumothorax is identified. Cardiomediastinal silhouette and hilar contours are within normal limits. The lung fields are clear and well-expanded. Visualized bony structures and soft tissues are unremarkable.',
     summary: 'No significant abnormalities detected in the chest X-ray. Lungs appear fully clear.',
+    previewUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Normal_posteroanterior_chest_radiograph.jpg/600px-Normal_posteroanterior_chest_radiograph.jpg',
     qa: [
       { q: "Is there any sign of pneumonia?", a: "No, there are no focal airspace consolidations, infiltrates, or patchy opacities. The lung fields are completely clear, making pneumonia highly unlikely (94% confidence)." },
       { q: "How is the heart size?", a: "The cardiomediastinal silhouette is within normal limits. There is no evidence of cardiomegaly (heart enlargement) or contour distortion." },
@@ -62,6 +63,7 @@ const SAMPLE_CASES = [
     confidence: 82,
     diagnosis: 'MULTIFOCAL PNEUMONIA. Patchy airspace opacities are noted in bilateral lower zones, significantly more pronounced on the right side. Findings are highly suggestive of multifocal bronchopneumonia or atypical infection. Mild pleural thickening is present. Recommend clinical correlation and immediate follow-up.',
     summary: 'Bilateral lower zone airspace opacities, highly suggestive of lobar pneumonia. Clinical verification is recommended.',
+    previewUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Lobar_pneumonia_right_middle_lobe_clinical_presentation_PA_chest_radiograph.jpg/600px-Lobar_pneumonia_right_middle_lobe_clinical_presentation_PA_chest_radiograph.jpg',
     qa: [
       { q: "Do I have pneumonia?", a: "Yes, the AI has identified patchy airspace opacities in both lower lung zones, which is a classic signature of pneumonia. The confidence score is 82% (Yellow), indicating clinical verification and doctor consult is recommended." },
       { q: "What should my next steps be?", a: "You should schedule a consultation with a pulmonologist or physician. The doctor will likely correlate these findings with your symptoms (fever, cough) and may prescribe antibiotics." },
@@ -76,6 +78,7 @@ const SAMPLE_CASES = [
     confidence: 78,
     diagnosis: 'WHITE MATTER GLIOSIS. Foci of hyperintense signal on T2/FLAIR sequences are observed within the bilateral periventricular and subcortical white matter. These findings most likely represent chronic microvascular ischemic changes or mild reactive gliosis. No acute intracranial hemorrhage, mass effect, or midline shift is identified.',
     summary: 'Focal periventricular T2/FLAIR hyperintensities consistent with chronic microvascular gliosis. Doctor verification suggested.',
+    previewUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/T2-weighted_MRI_brain.jpg/600px-T2-weighted_MRI_brain.jpg',
     qa: [
       { q: "Do I have a brain tumor?", a: "No acute intracranial masses, mass effect, or midline shifts are seen. The hyperintensities represent white matter gliosis (often due to small vessel aging), not a tumor, but verification with a neurologist is recommended (78% confidence)." },
       { q: "What causes white matter gliosis?", a: "Common causes include chronic microvascular ischemia, high blood pressure, migraines, or normal age-related changes. A neurologist can help evaluate your risk factors." },
@@ -90,6 +93,7 @@ const SAMPLE_CASES = [
     confidence: 54,
     diagnosis: 'CHOLELITHIASIS WITH ACUTE CHOLECYSTITIS? The gallbladder is distended and demonstrates multiple mobile echogenic foci with posterior acoustic shadowing, consistent with gallstones. The gallbladder wall is mildly thickened measuring 3.8mm (normal < 3mm). Mild pericholecystic fluid is suspected. RED ALERT: Due to borderline measurements and low confidence estimation (54%), AI cannot rule out acute cholecystitis. Direct specialist review is mandatory.',
     summary: 'Gallbladder stones detected with borderline wall thickening. AI confidence is low (54%). Immediate specialist consultation required.',
+    previewUrl: 'https://upload.wikimedia.org/wikipedia/commons/b/b5/Gallbladder_stones_shadow.jpg',
     qa: [
       { q: "Do I need surgery?", a: "AI detected gallbladder stones (cholelithiasis) and possible wall thickening. Because the confidence is below 60% (Red Dot), the AI REFUSES to make a definitive diagnosis. You must see a gastroenterologist or surgeon immediately to check for acute cholecystitis." },
       { q: "Why is the confidence so low?", a: "Acoustic shadowing and gas interference frequently obscure ultrasound margins. To protect your safety, the system flags this as 'Honest Uncertainty' and escalates to a medical practitioner." },
@@ -391,7 +395,8 @@ function App() {
         size: sample.size,
         type: sample.type,
         isSample: true,
-        sampleId: sample.id
+        sampleId: sample.id,
+        previewUrl: sample.previewUrl
       });
       setSelectedScanType(sample.type);
     }
@@ -401,11 +406,15 @@ function App() {
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      const isImg = file.type.startsWith('image/');
+      const previewUrl = isImg ? URL.createObjectURL(file) : null;
       setSelectedFile({
         name: file.name,
         size: (file.size / (1024 * 1024)).toFixed(1) + ' MB',
         type: selectedScanType,
-        isSample: false
+        isSample: false,
+        fileObject: file,
+        previewUrl: previewUrl
       });
     }
   };
@@ -459,89 +468,211 @@ function App() {
   };
 
   // Run AI analysis simulator
-  const handleRunAnalysis = () => {
+  const handleRunAnalysis = async () => {
     if (!selectedFile) return;
 
     setIsScanning(true);
     setScanProgress([logSteps[0]]);
 
-    let stepIndex = 0;
-    const interval = setInterval(() => {
-      stepIndex++;
-      if (stepIndex < logSteps.length) {
-        setScanProgress(prev => [...prev, logSteps[stepIndex]]);
-      } else {
-        clearInterval(interval);
-        setTimeout(() => {
-          // Finish scanning, assemble results
-          let resultData;
-          if (selectedFile.isSample) {
-            resultData = SAMPLE_CASES.find(c => c.id === selectedFile.sampleId);
-          } else {
-            // Generate dummy randomized result with varying confidence based on file name/scan type
-            const hash = selectedFile.name.length;
-            let confidence = 45 + (hash % 50); // range 45 to 95
+    // If it's a preloaded sample scan
+    if (selectedFile.isSample) {
+      let stepIndex = 0;
+      const interval = setInterval(() => {
+        stepIndex++;
+        if (stepIndex < logSteps.length) {
+          setScanProgress(prev => [...prev, logSteps[stepIndex]]);
+        } else {
+          clearInterval(interval);
+          setTimeout(() => {
+            const resultData = SAMPLE_CASES.find(c => c.id === selectedFile.sampleId);
+            let finalStatus = 'GREEN';
+            if (resultData.confidence < 70) finalStatus = 'RED';
+            else if (resultData.confidence < 85) finalStatus = 'YELLOW';
 
-            // Set specific thresholds
+            const newHistoryItem = {
+              id: 'h-' + Date.now(),
+              name: resultData.name,
+              type: resultData.type,
+              date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+              confidence: resultData.confidence,
+              status: finalStatus,
+              summary: resultData.summary
+            };
+
+            setScanHistory(prev => [newHistoryItem, ...prev]);
+            setActiveResult(resultData);
+            setVqaChat([
+              { sender: 'ai', text: `Visual analysis of ${resultData.name} complete. AI confidence: ${resultData.confidence}%. I am ready to answer any questions about this medical document.` }
+            ]);
+            setIsScanning(false);
+            setCurrentView('results');
+          }, 800);
+        }
+      }, 450);
+      return;
+    }
+
+    // Try uploading the actual file object to the FastAPI backend
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile.fileObject);
+      formData.append('category', selectedFile.type);
+      if (userQuestion.trim()) {
+        formData.append('question', userQuestion);
+      }
+
+      const response = await fetch('http://localhost:8000/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error('API server returned error status');
+      }
+
+      const resultData = await response.json();
+      resultData.previewUrl = selectedFile.previewUrl;
+
+      let stepIndex = 0;
+      const interval = setInterval(() => {
+        stepIndex++;
+        if (stepIndex < logSteps.length) {
+          setScanProgress(prev => [...prev, logSteps[stepIndex]]);
+        } else {
+          clearInterval(interval);
+          setTimeout(() => {
+            const newHistoryItem = {
+              id: resultData.id,
+              name: resultData.name,
+              type: resultData.type,
+              date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+              confidence: resultData.confidence,
+              status: resultData.status,
+              summary: resultData.summary
+            };
+
+            setScanHistory(prev => [newHistoryItem, ...prev]);
+            setActiveResult(resultData);
+            setVqaChat([
+              { sender: 'ai', text: `Analysis of ${resultData.name} complete. Safety score: ${resultData.confidence}% (${resultData.status}). Ask me any questions about these findings.` }
+            ]);
+            setIsScanning(false);
+            setCurrentView('results');
+          }, 800);
+        }
+      }, 300);
+
+    } catch (err) {
+      console.warn("FastAPI backend not running. Falling back to frontend mockup engine:", err);
+      
+      // Fallback local simulation (with Pathology report generation!)
+      let stepIndex = 0;
+      const interval = setInterval(() => {
+        stepIndex++;
+        if (stepIndex < logSteps.length) {
+          setScanProgress(prev => [...prev, logSteps[stepIndex]]);
+        } else {
+          clearInterval(interval);
+          setTimeout(() => {
+            const hash = selectedFile.name.length + selectedFile.type.length;
+            let confidence = 45 + (hash * 7) % 51; // range 45 to 95
             let status = 'GREEN';
             let diagnosticText = '';
+            let summaryText = '';
+            let qa = [];
 
-            if (confidence >= 85) {
-              status = 'GREEN';
-              diagnosticText = `HIGH CONFIDENCE DIAGNOSIS (${confidence}%). Clear visual indicators demonstrate normal structural architecture. No acute pathologic processes, lesions, fractures, or abnormal calcifications are detected in this ${selectedFile.type} scan. Recommended: Annual routine screening.`;
-            } else if (confidence >= 70) {
-              status = 'YELLOW';
-              diagnosticText = `MODERATE CONFIDENCE FINDING (${confidence}%). Minor sub-clinical asymmetry or structural irregularity is detected in the ${selectedFile.type} tissues. AI cannot definitively rule out minor early-stage inflammatory response or mechanical wear. Clinical correlation and specialist evaluation is recommended.`;
+            if (confidence >= 85) status = 'GREEN';
+            else if (confidence >= 70) status = 'YELLOW';
+            else status = 'RED';
+
+            if (selectedFile.type === 'Pathology') {
+              if (status === 'GREEN') {
+                diagnosticText = `PATHOLOGY HEMATOLOGY & CLINICAL BIOCHEMISTRY EVALUATION (Confidence: ${confidence}%). All critical parameters are within normal reference ranges. Hemoglobin: 14.2 g/dL (Normal: 12.0-16.0). White Blood Cell (WBC) Count: 6.8 x10^3/µL (Normal: 4.0-11.0). Fasting Blood Glucose: 92 mg/dL (Normal: 70-100). Thyroid Stimulating Hormone (TSH): 2.4 µIU/mL (Normal: 0.4-4.5). No acute hematological anomalies detected. Annual health checkup recommended.`;
+                summaryText = "All blood panels and biochemistry values within normal reference limits.";
+                qa = [
+                  { q: "Are my reports normal?", a: "Yes. All parameters including Hemoglobin, WBC count, and Glucose are perfectly within reference limits (Green status)." },
+                  { q: "What is my WBC count?", a: "Your White Blood Cell (WBC) count is 6.8 x10^3/µL, which is healthy and indicates no active bacterial infections." },
+                  { q: "Do I have thyroid issues?", a: "No, your TSH level is 2.4 µIU/mL, which falls well within the normal thyroid range." }
+                ];
+              } else if (status === 'YELLOW') {
+                diagnosticText = `PATHOLOGY EVALUATION: BORDERLINE METABOLIC FLAGS (Confidence: ${confidence}%). Total Cholesterol: 224 mg/dL (Borderline High: 200-239). Vitamin D (25-Hydroxy): 22 ng/mL (Mild Deficiency: 20-30). Thyroid Stimulating Hormone (TSH) is slightly elevated at 4.8 µIU/mL (Normal: 0.4-4.5), suggesting subclinical hypothyroidism. Recommended: Consult a physician for vitamin supplementation and lipid management.`;
+                summaryText = "Borderline hypercholesterolemia and subclinical TSH elevation. Review diet and supplements.";
+                qa = [
+                  { q: "Do I have cholesterol issues?", a: "Yes, your Total Cholesterol is borderline high at 224 mg/dL. Eating a heart-healthy diet and checking it again in 3 months is advised." },
+                  { q: "What is my Vitamin D level?", a: "Your Vitamin D is 22 ng/mL, indicating a mild deficiency. Your doctor may recommend a weekly supplement." },
+                  { q: "Is my thyroid normal?", a: "Your TSH is slightly elevated at 4.8 µIU/mL. This could represent early subclinical hypothyroidism. Your doctor can help determine if thyroid therapy is needed." }
+                ];
+              } else {
+                diagnosticText = `RED ALERT: CRITICAL PATHOLOGY REPORT FLAGGED (Confidence: ${confidence}%). White Blood Cell (WBC) Count is critically elevated at 18.5 x10^3/µL (Normal: 4.0-11.0), indicating severe infection or inflammatory flare. Liver enzymes ALT and AST are elevated past twice normal limits. Due to high-risk multi-panel anomalies and potential sampling noise, the AI has triggered the Safety Lock. The AI refuses to provide a self-diagnosis. Immediate doctor consult is mandatory.`;
+                summaryText = "Critical High WBC count and abnormal liver enzymes. Immediate clinical escalation required.";
+                qa = [
+                  { q: "What does a high WBC mean?", a: "A WBC of 18.5 x10^3/µL is critically high and usually indicates a strong active infection or severe inflammation. You need immediate medical attention." },
+                  { q: "Are my liver enzymes safe?", a: "No, liver enzymes are significantly elevated. A medical practitioner must review this immediately to test for liver stress or gallbladder inflammation." },
+                  { q: "Can AI prescribe medication?", a: "No. Due to low confidence (Red Status), the AI has locked analysis functions to protect your safety. You must consult a doctor." }
+                ];
+              }
             } else {
-              status = 'RED';
-              diagnosticText = `RED ALERT: LOW CONFIDENCE AI UNCERTAINTY (${confidence}%). Due to complex visual artifacts or atypical findings on the ${selectedFile.type} document, the AI engine has marked this scan under Honest Uncertainty. To prevent clinical errors, the AI REFUSES to render a diagnosis. Urgent clinical checkup is requested.`;
+              if (status === 'GREEN') {
+                diagnosticText = `HIGH CONFIDENCE DIAGNOSIS (${confidence}%). Clear visual indicators demonstrate normal structural architecture. No acute pathologic processes, lesions, fractures, or abnormal calcifications are detected in this ${selectedFile.type} scan. Recommended: Annual routine screening.`;
+                summaryText = `No significant abnormalities detected in the ${selectedFile.type} scan.`;
+              } else if (status === 'YELLOW') {
+                diagnosticText = `MODERATE CONFIDENCE FINDING (${confidence}%). Minor sub-clinical asymmetry or structural irregularity is detected in the ${selectedFile.type} tissues. AI cannot definitively rule out minor early-stage inflammatory response or mechanical wear. Clinical correlation and specialist evaluation is recommended.`;
+                summaryText = `Minor irregularities found in ${selectedFile.type}. Clinical review recommended.`;
+              } else {
+                diagnosticText = `RED ALERT: LOW CONFIDENCE AI UNCERTAINTY (${confidence}%). Due to complex visual artifacts or atypical findings on the ${selectedFile.type} document, the AI engine has marked this scan under Honest Uncertainty. To prevent clinical errors, the AI REFUSES to render a diagnosis. Urgent clinical checkup is requested.`;
+                summaryText = `AI uncertainty trigger. Direct doctor escalation required.`;
+              }
+              qa = [
+                { q: "Is this result definitive?", a: `No, this is a simulated AI prediction running with a confidence score of ${confidence}%. You must verify all findings with a certified professional.` },
+                { q: "Should I schedule an appointment?", a: confidence < 85 ? "Yes. A doctor consultation is recommended because the confidence level is under the green safety threshold." : "Only for routine medical correlation since the confidence score is high." }
+              ];
             }
 
-            resultData = {
+            if (userQuestion.trim()) {
+              qa.unshift({
+                q: userQuestion,
+                a: `Regarding your question "${userQuestion}": The scan demonstrates features consistent with our ${status} status report (${confidence}% certainty). Please consult a medical practitioner for confirmation.`
+              });
+            }
+
+            const resultData = {
               id: 'custom-' + Date.now(),
               name: selectedFile.name,
               type: selectedFile.type,
               size: selectedFile.size,
               confidence: confidence,
+              status: status,
               diagnosis: diagnosticText,
-              summary: confidence < 70 ? 'AI uncertainty trigger. Direct doctor escalation required.' : `Analyzed ${selectedFile.type} with ${confidence}% confidence.`,
-              qa: [
-                { q: "Is this result definitive?", a: `No, this is a simulated AI prediction running with a confidence score of ${confidence}%. You must verify all findings with a certified professional.` },
-                { q: "Should I schedule an appointment?", a: confidence < 85 ? "Yes. A doctor consultation is recommended because the confidence level is under the green safety threshold." : "Only for routine medical correlation since the confidence score is high." }
-              ]
+              summary: summaryText,
+              qa: qa,
+              previewUrl: selectedFile.previewUrl
             };
-          }
 
-          // Format status badge color
-          let finalStatus = 'GREEN';
-          if (resultData.confidence < 70) finalStatus = 'RED';
-          else if (resultData.confidence < 85) finalStatus = 'YELLOW';
+            const newHistoryItem = {
+              id: 'h-' + Date.now(),
+              name: resultData.name,
+              type: resultData.type,
+              date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+              confidence: resultData.confidence,
+              status: status,
+              summary: resultData.summary
+            };
 
-          const newHistoryItem = {
-            id: 'h-' + Date.now(),
-            name: resultData.name,
-            type: resultData.type,
-            date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            confidence: resultData.confidence,
-            status: finalStatus,
-            summary: resultData.summary
-          };
-
-          // Add to history and set active result
-          setScanHistory(prev => [newHistoryItem, ...prev]);
-          setActiveResult(resultData);
-          setVqaChat([
-            { sender: 'ai', text: `Visual analysis of ${resultData.name} complete. AI confidence: ${resultData.confidence}%. I am ready to answer any questions about this medical document.` }
-          ]);
-          setIsScanning(false);
-          setCurrentView('results');
-        }, 800);
-      }
-    }, 450);
+            setScanHistory(prev => [newHistoryItem, ...prev]);
+            setActiveResult(resultData);
+            setVqaChat([
+              { sender: 'ai', text: `Visual analysis of ${resultData.name} complete. AI confidence: ${resultData.confidence}%. I am ready to answer any questions about this document.` }
+            ]);
+            setIsScanning(false);
+            setCurrentView('results');
+          }, 800);
+        }
+      }, 450);
+    }
   };
 
   // Chat/VQA question handling
-  const handleSendVqa = (e) => {
+  const handleSendVqa = async (e) => {
     e.preventDefault();
     if (!vqaQuestion.trim() || !activeResult) return;
 
@@ -549,8 +680,31 @@ function App() {
     setVqaChat(prev => [...prev, { sender: 'user', text: userMsg }]);
     setVqaQuestion('');
 
+    if (activeResult.id && activeResult.id.startsWith('api-')) {
+      try {
+        const response = await fetch('http://localhost:8000/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: activeResult.name,
+            category: activeResult.type,
+            confidence: activeResult.confidence,
+            question: userMsg,
+            summary: activeResult.summary
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setVqaChat(prev => [...prev, { sender: 'ai', text: data.reply }]);
+          return;
+        }
+      } catch (err) {
+        console.warn("Backend chat unavailable, falling back to local chat simulation:", err);
+      }
+    }
+
     setTimeout(() => {
-      // Find matches in mock QA
       const matchedQa = activeResult.qa.find(
         item => item.q.toLowerCase().includes(userMsg.toLowerCase()) ||
           userMsg.toLowerCase().includes(item.q.toLowerCase())
@@ -560,7 +714,6 @@ function App() {
       if (matchedQa) {
         reply = matchedQa.a;
       } else {
-        // Generic fallback answers that reflect the safety traffic light logic
         if (activeResult.confidence < 70) {
           reply = `Emergency Alert: Because the confidence score is very low (${activeResult.confidence}%), I am restricted from giving detailed diagnostic answers. Please click the 'Find Nearest Specialist' button below to book an in-person diagnostic consultation immediately.`;
         } else {
@@ -1368,52 +1521,62 @@ function App() {
               </>
             )}
 
-            {/* Dynamic SVG illustration representing anatomical scanning based on category */}
-            <svg viewBox="0 0 100 100" className="scan-medical-svg" fill="none" stroke="currentColor">
-              {selectedScanType === 'X-Ray' && (
-                <g strokeWidth="1" stroke="currentColor" opacity="0.6">
-                  {/* Ribcage Outline */}
-                  <path d="M50,15 Q50,90 50,90" strokeWidth="2" />
-                  <path d="M50,22 Q75,18 78,35 Q70,42 50,42" />
-                  <path d="M50,22 Q25,18 22,35 Q30,42 50,42" />
-                  <path d="M50,42 Q80,38 82,55 Q70,62 50,62" />
-                  <path d="M50,42 Q20,38 18,55 Q30,62 50,62" />
-                  <path d="M50,62 Q82,58 84,75 Q70,82 50,82" />
-                  <path d="M50,62 Q18,58 16,75 Q30,82 50,82" />
-                  <path d="M42,12 Q50,8 58,12" strokeWidth="2" />
-                </g>
-              )}
-              {selectedScanType === 'MRI' && (
-                <g strokeWidth="1" stroke="currentColor" opacity="0.6">
-                  {/* Brain sagittal outline */}
-                  <path d="M50,10 C75,10 85,30 85,50 C85,75 70,85 50,85 C30,85 15,75 15,50 C15,30 25,10 50,10 Z" strokeWidth="2" />
-                  <path d="M50,25 C65,25 72,35 72,50 C72,65 60,73 50,73 C40,73 28,65 28,50 C28,35 35,25 50,25" />
-                  <path d="M50,10 Q50,85 50,85" strokeWidth="1.5" strokeDasharray="3,3" />
-                  <path d="M15,50 Q85,50 85,50" strokeWidth="1.5" strokeDasharray="3,3" />
-                </g>
-              )}
-              {selectedScanType === 'Ultrasound' && (
-                <g strokeWidth="1" stroke="currentColor" opacity="0.6">
-                  {/* Fan radar sweep */}
-                  <path d="M50,10 L85,85 A50,50 0 0,1 15,85 Z" strokeWidth="2" />
-                  <path d="M50,10 L68,88" strokeDasharray="2,2" />
-                  <path d="M50,10 L32,88" strokeDasharray="2,2" />
-                  <circle cx="50" cy="55" r="8" strokeWidth="1.5" />
-                  <circle cx="52" cy="58" r="3" fill="currentColor" />
-                  <circle cx="48" cy="54" r="2" fill="currentColor" />
-                </g>
-              )}
-              {(selectedScanType === 'CT Scan' || selectedScanType === 'Pathology') && (
-                <g strokeWidth="1" stroke="currentColor" opacity="0.6">
-                  {/* Circular matrix CT scan or tissue layout */}
-                  <circle cx="50" cy="50" r="38" strokeWidth="2" />
-                  <circle cx="50" cy="50" r="28" strokeDasharray="4,4" />
-                  <path d="M25,25 L75,75" strokeDasharray="2,2" />
-                  <path d="M75,25 L25,75" strokeDasharray="2,2" />
-                  <rect x="42" y="42" width="16" height="16" strokeWidth="1.5" />
-                </g>
-              )}
-            </svg>
+            {/* Dynamic preview of the uploaded medical document, fallback to SVG outline illustration */}
+            {selectedFile && selectedFile.previewUrl ? (
+              <div style={{ width: '85%', height: '85%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 1, borderRadius: '8px', overflow: 'hidden' }}>
+                <img 
+                  src={selectedFile.previewUrl} 
+                  alt="Uploaded scan preview" 
+                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '6px', border: '1px solid rgba(82, 183, 136, 0.2)' }} 
+                />
+              </div>
+            ) : (
+              <svg viewBox="0 0 100 100" className="scan-medical-svg" fill="none" stroke="currentColor">
+                {selectedScanType === 'X-Ray' && (
+                  <g strokeWidth="1" stroke="currentColor" opacity="0.6">
+                    {/* Ribcage Outline */}
+                    <path d="M50,15 Q50,90 50,90" strokeWidth="2" />
+                    <path d="M50,22 Q75,18 78,35 Q70,42 50,42" />
+                    <path d="M50,22 Q25,18 22,35 Q30,42 50,42" />
+                    <path d="M50,42 Q80,38 82,55 Q70,62 50,62" />
+                    <path d="M50,42 Q20,38 18,55 Q30,62 50,62" />
+                    <path d="M50,62 Q82,58 84,75 Q70,82 50,82" />
+                    <path d="M50,62 Q18,58 16,75 Q30,82 50,82" />
+                    <path d="M42,12 Q50,8 58,12" strokeWidth="2" />
+                  </g>
+                )}
+                {selectedScanType === 'MRI' && (
+                  <g strokeWidth="1" stroke="currentColor" opacity="0.6">
+                    {/* Brain sagittal outline */}
+                    <path d="M50,10 C75,10 85,30 85,50 C85,75 70,85 50,85 C30,85 15,75 15,50 C15,30 25,10 50,10 Z" strokeWidth="2" />
+                    <path d="M50,25 C65,25 72,35 72,50 C72,65 60,73 50,73 C40,73 28,65 28,50 C28,35 35,25 50,25" />
+                    <path d="M50,10 Q50,85 50,85" strokeWidth="1.5" strokeDasharray="3,3" />
+                    <path d="M15,50 Q85,50 85,50" strokeWidth="1.5" strokeDasharray="3,3" />
+                  </g>
+                )}
+                {selectedScanType === 'Ultrasound' && (
+                  <g strokeWidth="1" stroke="currentColor" opacity="0.6">
+                    {/* Fan radar sweep */}
+                    <path d="M50,10 L85,85 A50,50 0 0,1 15,85 Z" strokeWidth="2" />
+                    <path d="M50,10 L68,88" strokeDasharray="2,2" />
+                    <path d="M50,10 L32,88" strokeDasharray="2,2" />
+                    <circle cx="50" cy="55" r="8" strokeWidth="1.5" />
+                    <circle cx="52" cy="58" r="3" fill="currentColor" />
+                    <circle cx="48" cy="54" r="2" fill="currentColor" />
+                  </g>
+                )}
+                {(selectedScanType === 'CT Scan' || selectedScanType === 'Pathology') && (
+                  <g strokeWidth="1" stroke="currentColor" opacity="0.6">
+                    {/* Circular matrix CT scan or tissue layout */}
+                    <circle cx="50" cy="50" r="38" strokeWidth="2" />
+                    <circle cx="50" cy="50" r="28" strokeDasharray="4,4" />
+                    <path d="M25,25 L75,75" strokeDasharray="2,2" />
+                    <path d="M75,25 L25,75" strokeDasharray="2,2" />
+                    <rect x="42" y="42" width="16" height="16" strokeWidth="1.5" />
+                  </g>
+                )}
+              </svg>
+            )}
 
             {/* Log console overlay during scanning */}
             {isScanning && (
@@ -1495,71 +1658,126 @@ function App() {
             <div className="grid-overlay-matrix"></div>
 
             {/* Glowing focus rectangle framing the medical file */}
-            <div style={{ border: '1px solid rgba(82, 183, 136, 0.4)', borderRadius: '12px', padding: '16px', position: 'relative', width: '85%', height: '85%', display: 'flex', alignItems: 'center', justifySelf: 'center', justifyContent: 'center' }}>
-              <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', color: 'var(--mint)' }} fill="none" stroke="currentColor">
-                {activeResult.type === 'X-Ray' && (
-                  <g strokeWidth="1" stroke="currentColor">
-                    <path d="M50,15 Q50,90 50,90" strokeWidth="2.5" />
-                    <path d="M50,22 Q75,18 78,35 Q70,42 50,42" />
-                    <path d="M50,22 Q25,18 22,35 Q30,42 50,42" />
-                    <path d="M50,42 Q80,38 82,55 Q70,62 50,62" />
-                    <path d="M50,42 Q20,38 18,55 Q30,62 50,62" />
-                    <path d="M50,62 Q82,58 84,75 Q70,82 50,82" />
-                    <path d="M50,62 Q18,58 16,75 Q30,82 50,82" />
-                    {/* If pneumonia is present, render a cloudy red circle highlighting the disease */}
-                    {activeResult.id.includes('pneumonia') && (
-                      <g>
-                        <circle cx="68" cy="65" r="12" fill="var(--color-yellow)" opacity="0.25" stroke="var(--color-yellow)" strokeDasharray="2,2" />
-                        <path d="M68,53 L78,65" stroke="var(--color-red)" strokeWidth="1" />
-                        <text x="68" y="50" fill="var(--color-red)" fontSize="5" fontWeight="bold" textAnchor="middle">ANOMALY ZONE</text>
-                      </g>
-                    )}
-                  </g>
-                )}
-                {activeResult.type === 'MRI' && (
-                  <g strokeWidth="1" stroke="currentColor">
-                    <path d="M50,10 C75,10 85,30 85,50 C85,75 70,85 50,85 C30,85 15,75 15,50 C15,30 25,10 50,10 Z" strokeWidth="2.5" />
-                    <path d="M50,25 C65,25 72,35 72,50 C72,65 60,73 50,73 C40,73 28,65 28,50 C28,35 35,25 50,25" />
-                    {/* Brain ventricles */}
-                    <path d="M42,48 Q50,40 58,48 Q50,55 42,48" strokeWidth="1.5" />
-                    {/* If gliosis is selected, render a small yellow anomaly circle */}
-                    {activeResult.id.includes('gliosis') && (
-                      <g>
-                        <circle cx="36" cy="38" r="8" fill="var(--color-yellow)" opacity="0.3" stroke="var(--color-yellow)" strokeDasharray="1.5,1.5" />
-                        <text x="36" y="27" fill="var(--color-yellow)" fontSize="5" fontWeight="bold" textAnchor="middle">GLIOSIS ZONE</text>
-                      </g>
-                    )}
-                  </g>
-                )}
-                {activeResult.type === 'Ultrasound' && (
-                  <g strokeWidth="1" stroke="currentColor">
-                    <path d="M50,10 L85,85 A50,50 0 0,1 15,85 Z" strokeWidth="2.5" fill="rgba(82, 183, 136, 0.02)" />
-                    <path d="M50,10 L68,88" strokeDasharray="2,2" opacity="0.4" />
-                    <path d="M50,10 L32,88" strokeDasharray="2,2" opacity="0.4" />
-                    <circle cx="50" cy="55" r="8" strokeWidth="1.5" />
-                    {/* Gallstones visual */}
-                    {activeResult.id.includes('gallstones') && (
-                      <g>
-                        <circle cx="52" cy="58" r="2.5" fill="var(--color-red)" />
-                        <circle cx="47" cy="54" r="2" fill="var(--color-red)" />
-                        {/* Acoustic Shadowing */}
-                        <path d="M52,60.5 L55,85" stroke="var(--color-red)" strokeWidth="1" strokeDasharray="1,2" />
-                        <path d="M47,56 L44,82" stroke="var(--color-red)" strokeWidth="1" strokeDasharray="1,2" />
-                        <text x="50" y="42" fill="var(--color-red)" fontSize="4.5" fontWeight="bold" textAnchor="middle">CHOLELITHIASIS ALERT</text>
-                      </g>
-                    )}
-                  </g>
-                )}
-                {activeResult.type === 'CT Scan' && (
-                  <g strokeWidth="1" stroke="currentColor">
-                    <circle cx="50" cy="50" r="38" strokeWidth="2" />
-                    <circle cx="50" cy="50" r="28" strokeDasharray="4,4" />
-                    <rect x="42" y="42" width="16" height="16" strokeWidth="1.5" />
-                  </g>
-                )}
-              </svg>
+            <div style={{ border: '1px solid rgba(82, 183, 136, 0.4)', borderRadius: '12px', padding: '16px', position: 'relative', width: '85%', height: '85%', display: 'flex', alignItems: 'center', justifySelf: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+              {activeResult.type === 'Pathology' ? (
+                <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', padding: '8px', overflowY: 'auto' }}>
+                  <div style={{ borderBottom: '1px dashed rgba(255,255,255,0.2)', paddingBottom: '6px', marginBottom: '8px', flexShrink: 0 }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#52b788', textTransform: 'uppercase', letterSpacing: '0.05em' }}>DIAGNEX REFERENCE LABORATORY</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>CELLULAR & METABOLIC BIOCHEMISTRY REPORT</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, justifyContent: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Hemoglobin (Hb)</span>
+                      <span style={{ fontWeight: 700 }}>14.2 g/dL</span>
+                      <span style={{ fontSize: '0.6rem', color: '#52b788', background: 'rgba(82, 183, 136, 0.1)', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>NORMAL</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>White Blood Cells (WBC)</span>
+                      <span style={{ fontWeight: 700 }}>{activeResult.confidence < 70 ? '18.5 x10³/µL' : '6.8 x10³/µL'}</span>
+                      <span style={{ 
+                        fontSize: '0.6rem', 
+                        color: activeResult.confidence < 70 ? '#ff6b6b' : '#52b788', 
+                        background: activeResult.confidence < 70 ? 'rgba(255, 107, 107, 0.15)' : 'rgba(82, 183, 136, 0.1)', 
+                        padding: '2px 6px', 
+                        borderRadius: '4px',
+                        fontWeight: 'bold'
+                      }}>{activeResult.confidence < 70 ? 'CRITICAL HIGH' : 'NORMAL'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>TSH (Thyroid Stimulating)</span>
+                      <span style={{ fontWeight: 700 }}>{activeResult.confidence >= 70 && activeResult.confidence < 85 ? '4.8 µIU/mL' : '2.4 µIU/mL'}</span>
+                      <span style={{ 
+                        fontSize: '0.6rem', 
+                        color: activeResult.confidence >= 70 && activeResult.confidence < 85 ? '#ffd166' : '#52b788', 
+                        background: activeResult.confidence >= 70 && activeResult.confidence < 85 ? 'rgba(255, 209, 102, 0.15)' : 'rgba(82, 183, 136, 0.1)', 
+                        padding: '2px 6px', 
+                        borderRadius: '4px',
+                        fontWeight: 'bold'
+                      }}>{activeResult.confidence >= 70 && activeResult.confidence < 85 ? 'BORDERLINE' : 'NORMAL'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Total Cholesterol</span>
+                      <span style={{ fontWeight: 700 }}>{activeResult.confidence >= 70 && activeResult.confidence < 85 ? '224 mg/dL' : '176 mg/dL'}</span>
+                      <span style={{ 
+                        fontSize: '0.6rem', 
+                        color: activeResult.confidence >= 70 && activeResult.confidence < 85 ? '#ffd166' : '#52b788', 
+                        background: activeResult.confidence >= 70 && activeResult.confidence < 85 ? 'rgba(255, 209, 102, 0.15)' : 'rgba(82, 183, 136, 0.1)', 
+                        padding: '2px 6px', 
+                        borderRadius: '4px',
+                        fontWeight: 'bold'
+                      }}>{activeResult.confidence >= 70 && activeResult.confidence < 85 ? 'BORDERLINE' : 'NORMAL'}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : activeResult.previewUrl ? (
+                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <img 
+                    src={activeResult.previewUrl} 
+                    alt="Analyzed Scan" 
+                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.6)' }} 
+                  />
+                </div>
+              ) : (
+                <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', color: 'var(--mint)' }} fill="none" stroke="currentColor">
+                  {activeResult.type === 'X-Ray' && (
+                    <g strokeWidth="1" stroke="currentColor">
+                      <path d="M50,15 Q50,90 50,90" strokeWidth="2.5" />
+                      <path d="M50,22 Q75,18 78,35 Q70,42 50,42" />
+                      <path d="M50,22 Q25,18 22,35 Q30,42 50,42" />
+                      <path d="M50,42 Q80,38 82,55 Q70,62 50,62" />
+                      <path d="M50,42 Q20,38 18,55 Q30,62 50,62" />
+                      <path d="M50,62 Q82,58 84,75 Q70,82 50,82" />
+                      <path d="M50,62 Q18,58 16,75 Q30,82 50,82" />
+                      {activeResult.id.includes('pneumonia') && (
+                        <g>
+                          <circle cx="68" cy="65" r="12" fill="var(--color-yellow)" opacity="0.25" stroke="var(--color-yellow)" strokeDasharray="2,2" />
+                          <path d="M68,53 L78,65" stroke="var(--color-red)" strokeWidth="1" />
+                          <text x="68" y="50" fill="var(--color-red)" fontSize="5" fontWeight="bold" textAnchor="middle">ANOMALY ZONE</text>
+                        </g>
+                      )}
+                    </g>
+                  )}
+                  {activeResult.type === 'MRI' && (
+                    <g strokeWidth="1" stroke="currentColor">
+                      <path d="M50,10 C75,10 85,30 85,50 C85,75 70,85 50,85 C30,85 15,75 15,50 C15,30 25,10 50,10 Z" strokeWidth="2.5" />
+                      <path d="M50,25 C65,25 72,35 72,50 C72,65 60,73 50,73 C40,73 28,65 28,50 C28,35 35,25 50,25" />
+                      <path d="M42,48 Q50,40 58,48 Q50,55 42,48" strokeWidth="1.5" />
+                      {activeResult.id.includes('gliosis') && (
+                        <g>
+                          <circle cx="36" cy="38" r="8" fill="var(--color-yellow)" opacity="0.3" stroke="var(--color-yellow)" strokeDasharray="1.5,1.5" />
+                          <text x="36" y="27" fill="var(--color-yellow)" fontSize="5" fontWeight="bold" textAnchor="middle">GLIOSIS ZONE</text>
+                        </g>
+                      )}
+                    </g>
+                  )}
+                  {activeResult.type === 'Ultrasound' && (
+                    <g strokeWidth="1" stroke="currentColor">
+                      <path d="M50,10 L85,85 A50,50 0 0,1 15,85 Z" strokeWidth="2.5" fill="rgba(82, 183, 136, 0.02)" />
+                      <path d="M50,10 L68,88" strokeDasharray="2,2" opacity="0.4" />
+                      <path d="M50,10 L32,88" strokeDasharray="2,2" opacity="0.4" />
+                      <circle cx="50" cy="55" r="8" strokeWidth="1.5" />
+                      {activeResult.id.includes('gallstones') && (
+                        <g>
+                          <circle cx="52" cy="58" r="2.5" fill="var(--color-red)" />
+                          <circle cx="47" cy="54" r="2" fill="var(--color-red)" />
+                          <path d="M52,60.5 L55,85" stroke="var(--color-red)" strokeWidth="1" strokeDasharray="1,2" />
+                          <path d="M47,56 L44,82" stroke="var(--color-red)" strokeWidth="1" strokeDasharray="1,2" />
+                          <text x="50" y="42" fill="var(--color-red)" fontSize="4.5" fontWeight="bold" textAnchor="middle">CHOLELITHIASIS ALERT</text>
+                        </g>
+                      )}
+                    </g>
+                  )}
+                  {activeResult.type === 'CT Scan' && (
+                    <g strokeWidth="1" stroke="currentColor">
+                      <circle cx="50" cy="50" r="38" strokeWidth="2" />
+                      <circle cx="50" cy="50" r="28" strokeDasharray="4,4" />
+                      <rect x="42" y="42" width="16" height="16" strokeWidth="1.5" />
+                    </g>
+                  )}
+                </svg>
+              )}
 
-              <div style={{ position: 'absolute', bottom: '12px', left: '12px', background: 'rgba(0,0,0,0.8)', padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', border: '1px solid var(--panel-border)' }}>
+              <div style={{ position: 'absolute', bottom: '12px', left: '12px', background: 'rgba(15, 23, 42, 0.9)', padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', border: '1px solid rgba(255, 255, 255, 0.15)', zIndex: 10, color: '#ffffff', fontWeight: '500' }}>
                 {activeResult.name} · {activeResult.type}
               </div>
             </div>

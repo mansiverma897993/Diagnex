@@ -100,3 +100,22 @@ Run the local Vite server:
 npm run dev
 ```
 The application will boot up at **[http://localhost:5173/](http://localhost:5173/)**. Open the URL in your browser to interact with the medical VQA portal.
+
+### Running the Python FastAPI Backend Service
+
+Diagnex features an optional high-performance Python FastAPI backend for handling live file uploads and processing pathology report datasets.
+
+1. **Navigate to the backend directory**:
+   ```bash
+   cd backend
+   ```
+2. **Install Python dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. **Start the FastAPI application**:
+   ```bash
+   uvicorn main:app --reload --port 8000
+   ```
+4. Once running, the frontend will automatically direct all file uploads and VQA chat queries through the FastAPI endpoints on `http://localhost:8000`. If the backend is not running, the frontend will automatically use its internal mockup engine, ensuring seamless and crash-free user exploration.
+
