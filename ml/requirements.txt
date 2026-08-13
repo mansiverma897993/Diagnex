@@ -1,0 +1,26 @@
+# Diagnex ML pipeline — CPU-only, no CUDA.
+# Install with:  uv pip install -r ml/requirements.txt --index-strategy unsafe-best-match
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch==2.5.1+cpu
+torchvision==0.20.1+cpu
+
+# BiomedCLIP is distributed as an open_clip checkpoint on the HF hub.
+open_clip_torch==2.29.0
+transformers==4.46.3
+tokenizers>=0.20,<0.21
+datasets==3.1.0
+huggingface_hub>=0.26,<1.0
+
+pillow==11.0.0
+numpy==1.26.4
+scikit-learn==1.5.2
+pandas==2.2.3
+tqdm==4.67.1
+
+# Backend
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.19
+pydantic==2.10.3
+pydicom==3.0.1
