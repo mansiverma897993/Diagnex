@@ -1659,57 +1659,7 @@ function App() {
 
             {/* Glowing focus rectangle framing the medical file */}
             <div style={{ border: '1px solid rgba(82, 183, 136, 0.4)', borderRadius: '12px', padding: '16px', position: 'relative', width: '85%', height: '85%', display: 'flex', alignItems: 'center', justifySelf: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-              {activeResult.type === 'Pathology' ? (
-                <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', padding: '8px', overflowY: 'auto' }}>
-                  <div style={{ borderBottom: '1px dashed rgba(255,255,255,0.2)', paddingBottom: '6px', marginBottom: '8px', flexShrink: 0 }}>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#52b788', textTransform: 'uppercase', letterSpacing: '0.05em' }}>DIAGNEX REFERENCE LABORATORY</div>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>CELLULAR & METABOLIC BIOCHEMISTRY REPORT</div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, justifyContent: 'center' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Hemoglobin (Hb)</span>
-                      <span style={{ fontWeight: 700 }}>14.2 g/dL</span>
-                      <span style={{ fontSize: '0.6rem', color: '#52b788', background: 'rgba(82, 183, 136, 0.1)', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>NORMAL</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>White Blood Cells (WBC)</span>
-                      <span style={{ fontWeight: 700 }}>{activeResult.confidence < 70 ? '18.5 x10³/µL' : '6.8 x10³/µL'}</span>
-                      <span style={{ 
-                        fontSize: '0.6rem', 
-                        color: activeResult.confidence < 70 ? '#ff6b6b' : '#52b788', 
-                        background: activeResult.confidence < 70 ? 'rgba(255, 107, 107, 0.15)' : 'rgba(82, 183, 136, 0.1)', 
-                        padding: '2px 6px', 
-                        borderRadius: '4px',
-                        fontWeight: 'bold'
-                      }}>{activeResult.confidence < 70 ? 'CRITICAL HIGH' : 'NORMAL'}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>TSH (Thyroid Stimulating)</span>
-                      <span style={{ fontWeight: 700 }}>{activeResult.confidence >= 70 && activeResult.confidence < 85 ? '4.8 µIU/mL' : '2.4 µIU/mL'}</span>
-                      <span style={{ 
-                        fontSize: '0.6rem', 
-                        color: activeResult.confidence >= 70 && activeResult.confidence < 85 ? '#ffd166' : '#52b788', 
-                        background: activeResult.confidence >= 70 && activeResult.confidence < 85 ? 'rgba(255, 209, 102, 0.15)' : 'rgba(82, 183, 136, 0.1)', 
-                        padding: '2px 6px', 
-                        borderRadius: '4px',
-                        fontWeight: 'bold'
-                      }}>{activeResult.confidence >= 70 && activeResult.confidence < 85 ? 'BORDERLINE' : 'NORMAL'}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Total Cholesterol</span>
-                      <span style={{ fontWeight: 700 }}>{activeResult.confidence >= 70 && activeResult.confidence < 85 ? '224 mg/dL' : '176 mg/dL'}</span>
-                      <span style={{ 
-                        fontSize: '0.6rem', 
-                        color: activeResult.confidence >= 70 && activeResult.confidence < 85 ? '#ffd166' : '#52b788', 
-                        background: activeResult.confidence >= 70 && activeResult.confidence < 85 ? 'rgba(255, 209, 102, 0.15)' : 'rgba(82, 183, 136, 0.1)', 
-                        padding: '2px 6px', 
-                        borderRadius: '4px',
-                        fontWeight: 'bold'
-                      }}>{activeResult.confidence >= 70 && activeResult.confidence < 85 ? 'BORDERLINE' : 'NORMAL'}</span>
-                    </div>
-                  </div>
-                </div>
-              ) : activeResult.previewUrl ? (
+              {activeResult.previewUrl ? (
                 <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <img 
                     src={activeResult.previewUrl} 
