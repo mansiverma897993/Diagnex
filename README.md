@@ -101,7 +101,7 @@ npm run dev
 ```
 The application will boot up at **[http://localhost:5173/](http://localhost:5173/)**. Open the URL in your browser to interact with the medical VQA portal.
 
-### Running the Python FastAPI Backend Service
+### Running the Python FastAPI Backend service
 
 Diagnex features an optional high-performance Python FastAPI backend for handling live file uploads and processing pathology report datasets.
 
