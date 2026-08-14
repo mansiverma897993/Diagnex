@@ -1,4 +1,4 @@
-# 🧬 Diagnex - AI Medical Imaging & Radiologist VQA Portal
+# Diagnex - AI Medical Imaging & Radiologist VQA Portal
 
 Diagnex is a state-of-the-art, high-fidelity AI-assisted Medical Imaging and Visual Question Answering (VQA) clinical assistant designed to empower patients and assist radiologists. The application features rich, premium aesthetics including dynamic background nodes, glassmorphic UI cards, smooth GSAP micro-animations, and a responsive portal system.
 
