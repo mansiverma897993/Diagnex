@@ -38,7 +38,18 @@ import {
   X
 } from 'lucide-react'
 
-// Mock database of pre-loaded sample scans for testing and demonstration
+const API_BASE = import.meta.env.VITE_DIAGNEX_API || 'http://localhost:8000'
+
+// Safety thresholds. These mirror backend/app/safety.py and must not drift
+// from it: tau = 0.60 is the published abstention threshold that removes 51.1%
+// of critical errors while retaining 91.8% of correct answers. The backend is
+// authoritative and sends the band it decided; these constants only drive the
+// explanatory traffic-light diagram.
+const TAU_ABSTAIN_PCT = 60
+const TAU_GREEN_PCT = 85
+
+// Pre-loaded demonstration scans. These are illustrative UI fixtures, not model
+// output - the lab routes real uploads through the API.
 const SAMPLE_CASES = [
   {
     id: 'sample-chest-normal',
@@ -202,6 +213,9 @@ function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState([]);
   const [scanProgressIndex, setScanProgressIndex] = useState(0);
+  // Surfaced when the analysis service is unreachable or untrained. There is
+  // deliberately no fallback result to show in its place.
+  const [analysisError, setAnalysisError] = useState(null);
 
   // Current Active Scan Result
   const [activeResult, setActiveResult] = useState(null);
@@ -217,12 +231,26 @@ function App() {
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [mapFilterDistance, setMapFilterDistance] = useState('all'); // 'all', '1km', '3km'
 
-  // Dashboard scan history
-  const [scanHistory, setScanHistory] = useState([
-    { id: 'h1', name: 'Chest_XRay_Routine_Aryan.png', type: 'X-Ray', date: 'Apr 14, 2026', confidence: 91, status: 'GREEN', summary: 'Lungs are clear. Normal chest scan.' },
-    { id: 'h2', name: 'Lumbar_Spine_MRI.pdf', type: 'MRI', date: 'Apr 10, 2026', confidence: 76, status: 'YELLOW', summary: 'Mild L4-L5 disc bulge, verify with therapist.' },
-    { id: 'h3', name: 'Thyroid_Ultrasound.jpg', type: 'Ultrasound', date: 'Apr 05, 2026', confidence: 58, status: 'RED', summary: 'Atypical nodule found. Escalated to endocrinologist.' }
-  ]);
+  // Dashboard scan history. Starts empty on purpose: only scans completed in
+  // this session (or preloaded demo scans) are shown, never fabricated records.
+  const [scanHistory, setScanHistory] = useState([]);
+
+  // Real-time system status pulled from the backend /api/health + /api/stats.
+  const [systemHealth, setSystemHealth] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/health`);
+        const data = await res.json();
+        if (!cancelled) setSystemHealth(data);
+      } catch {
+        if (!cancelled) setSystemHealth({ ready: false, reason: 'unreachable' });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Clinical Assistant Chat AI State
   const [chatHistory, setChatHistory] = useState([
@@ -233,12 +261,12 @@ function App() {
 
   // Log steps list for scanning effect
   const logSteps = [
-    "Establishing handshake with CrossGate-VQA medical API...",
-    "Uploading raw image buffers (secure TLS 1.3)...",
-    "Pre-processing tensor grids (2048x2048 high-quality format)...",
-    "Running structural segmentation (U-Net feature extractor)...",
+    "Connecting to the Diagnex analysis service...",
+    "Uploading scan and stripping identifying metadata...",
+    "Resizing to 224x224 and normalising for the vision encoder...",
+    "Encoding image with BiomedCLIP ViT-B/16 (frozen)...",
     "Querying deep visual question-answering neural network...",
-    "Extracting Bayesian uncertainty bounds...",
+    "Applying temperature scaling to calibrate confidence...",
     "Compiling confidence thresholds and localizing findings...",
     "Analysis complete! Ready to view."
   ];
@@ -471,6 +499,7 @@ function App() {
   const handleRunAnalysis = async () => {
     if (!selectedFile) return;
 
+    setAnalysisError(null);
     setIsScanning(true);
     setScanProgress([logSteps[0]]);
 
@@ -486,7 +515,7 @@ function App() {
           setTimeout(() => {
             const resultData = SAMPLE_CASES.find(c => c.id === selectedFile.sampleId);
             let finalStatus = 'GREEN';
-            if (resultData.confidence < 70) finalStatus = 'RED';
+            if (resultData.confidence < TAU_ABSTAIN_PCT) finalStatus = 'RED';
             else if (resultData.confidence < 85) finalStatus = 'YELLOW';
 
             const newHistoryItem = {
@@ -521,13 +550,21 @@ function App() {
         formData.append('question', userQuestion);
       }
 
-      const response = await fetch('http://localhost:8000/api/upload', {
+      const response = await fetch(`${API_BASE}/api/upload`, {
         method: 'POST',
         body: formData
       });
 
       if (!response.ok) {
-        throw new Error('API server returned error status');
+        // 503 means the model is not trained. The API returns instructions
+        // rather than inventing a result, and so does the UI.
+        const err = new Error(`Analysis service returned ${response.status}`);
+        if (response.status === 503) err.modelNotTrained = true;
+        else {
+          const detail = await response.json().catch(() => null);
+          if (detail?.detail) err.message = typeof detail.detail === 'string' ? detail.detail : err.message;
+        }
+        throw err;
       }
 
       const resultData = await response.json();
@@ -563,115 +600,25 @@ function App() {
       }, 300);
 
     } catch (err) {
-      console.warn("FastAPI backend not running. Falling back to frontend mockup engine:", err);
-      
-      // Fallback local simulation (with Pathology report generation!)
-      let stepIndex = 0;
-      const interval = setInterval(() => {
-        stepIndex++;
-        if (stepIndex < logSteps.length) {
-          setScanProgress(prev => [...prev, logSteps[stepIndex]]);
-        } else {
-          clearInterval(interval);
-          setTimeout(() => {
-            const hash = selectedFile.name.length + selectedFile.type.length;
-            let confidence = 45 + (hash * 7) % 51; // range 45 to 95
-            let status = 'GREEN';
-            let diagnosticText = '';
-            let summaryText = '';
-            let qa = [];
-
-            if (confidence >= 85) status = 'GREEN';
-            else if (confidence >= 70) status = 'YELLOW';
-            else status = 'RED';
-
-            if (selectedFile.type === 'Pathology') {
-              if (status === 'GREEN') {
-                diagnosticText = `PATHOLOGY HEMATOLOGY & CLINICAL BIOCHEMISTRY EVALUATION (Confidence: ${confidence}%). All critical parameters are within normal reference ranges. Hemoglobin: 14.2 g/dL (Normal: 12.0-16.0). White Blood Cell (WBC) Count: 6.8 x10^3/µL (Normal: 4.0-11.0). Fasting Blood Glucose: 92 mg/dL (Normal: 70-100). Thyroid Stimulating Hormone (TSH): 2.4 µIU/mL (Normal: 0.4-4.5). No acute hematological anomalies detected. Annual health checkup recommended.`;
-                summaryText = "All blood panels and biochemistry values within normal reference limits.";
-                qa = [
-                  { q: "Are my reports normal?", a: "Yes. All parameters including Hemoglobin, WBC count, and Glucose are perfectly within reference limits (Green status)." },
-                  { q: "What is my WBC count?", a: "Your White Blood Cell (WBC) count is 6.8 x10^3/µL, which is healthy and indicates no active bacterial infections." },
-                  { q: "Do I have thyroid issues?", a: "No, your TSH level is 2.4 µIU/mL, which falls well within the normal thyroid range." }
-                ];
-              } else if (status === 'YELLOW') {
-                diagnosticText = `PATHOLOGY EVALUATION: BORDERLINE METABOLIC FLAGS (Confidence: ${confidence}%). Total Cholesterol: 224 mg/dL (Borderline High: 200-239). Vitamin D (25-Hydroxy): 22 ng/mL (Mild Deficiency: 20-30). Thyroid Stimulating Hormone (TSH) is slightly elevated at 4.8 µIU/mL (Normal: 0.4-4.5), suggesting subclinical hypothyroidism. Recommended: Consult a physician for vitamin supplementation and lipid management.`;
-                summaryText = "Borderline hypercholesterolemia and subclinical TSH elevation. Review diet and supplements.";
-                qa = [
-                  { q: "Do I have cholesterol issues?", a: "Yes, your Total Cholesterol is borderline high at 224 mg/dL. Eating a heart-healthy diet and checking it again in 3 months is advised." },
-                  { q: "What is my Vitamin D level?", a: "Your Vitamin D is 22 ng/mL, indicating a mild deficiency. Your doctor may recommend a weekly supplement." },
-                  { q: "Is my thyroid normal?", a: "Your TSH is slightly elevated at 4.8 µIU/mL. This could represent early subclinical hypothyroidism. Your doctor can help determine if thyroid therapy is needed." }
-                ];
-              } else {
-                diagnosticText = `RED ALERT: CRITICAL PATHOLOGY REPORT FLAGGED (Confidence: ${confidence}%). White Blood Cell (WBC) Count is critically elevated at 18.5 x10^3/µL (Normal: 4.0-11.0), indicating severe infection or inflammatory flare. Liver enzymes ALT and AST are elevated past twice normal limits. Due to high-risk multi-panel anomalies and potential sampling noise, the AI has triggered the Safety Lock. The AI refuses to provide a self-diagnosis. Immediate doctor consult is mandatory.`;
-                summaryText = "Critical High WBC count and abnormal liver enzymes. Immediate clinical escalation required.";
-                qa = [
-                  { q: "What does a high WBC mean?", a: "A WBC of 18.5 x10^3/µL is critically high and usually indicates a strong active infection or severe inflammation. You need immediate medical attention." },
-                  { q: "Are my liver enzymes safe?", a: "No, liver enzymes are significantly elevated. A medical practitioner must review this immediately to test for liver stress or gallbladder inflammation." },
-                  { q: "Can AI prescribe medication?", a: "No. Due to low confidence (Red Status), the AI has locked analysis functions to protect your safety. You must consult a doctor." }
-                ];
-              }
-            } else {
-              if (status === 'GREEN') {
-                diagnosticText = `HIGH CONFIDENCE DIAGNOSIS (${confidence}%). Clear visual indicators demonstrate normal structural architecture. No acute pathologic processes, lesions, fractures, or abnormal calcifications are detected in this ${selectedFile.type} scan. Recommended: Annual routine screening.`;
-                summaryText = `No significant abnormalities detected in the ${selectedFile.type} scan.`;
-              } else if (status === 'YELLOW') {
-                diagnosticText = `MODERATE CONFIDENCE FINDING (${confidence}%). Minor sub-clinical asymmetry or structural irregularity is detected in the ${selectedFile.type} tissues. AI cannot definitively rule out minor early-stage inflammatory response or mechanical wear. Clinical correlation and specialist evaluation is recommended.`;
-                summaryText = `Minor irregularities found in ${selectedFile.type}. Clinical review recommended.`;
-              } else {
-                diagnosticText = `RED ALERT: LOW CONFIDENCE AI UNCERTAINTY (${confidence}%). Due to complex visual artifacts or atypical findings on the ${selectedFile.type} document, the AI engine has marked this scan under Honest Uncertainty. To prevent clinical errors, the AI REFUSES to render a diagnosis. Urgent clinical checkup is requested.`;
-                summaryText = `AI uncertainty trigger. Direct doctor escalation required.`;
-              }
-              qa = [
-                { q: "Is this result definitive?", a: `No, this is a simulated AI prediction running with a confidence score of ${confidence}%. You must verify all findings with a certified professional.` },
-                { q: "Should I schedule an appointment?", a: confidence < 85 ? "Yes. A doctor consultation is recommended because the confidence level is under the green safety threshold." : "Only for routine medical correlation since the confidence score is high." }
-              ];
-            }
-
-            if (userQuestion.trim()) {
-              qa.unshift({
-                q: userQuestion,
-                a: `Regarding your question "${userQuestion}": The scan demonstrates features consistent with our ${status} status report (${confidence}% certainty). Please consult a medical practitioner for confirmation.`
-              });
-            }
-
-            const resultData = {
-              id: 'custom-' + Date.now(),
-              name: selectedFile.name,
-              type: selectedFile.type,
-              size: selectedFile.size,
-              confidence: confidence,
-              status: status,
-              diagnosis: diagnosticText,
-              summary: summaryText,
-              qa: qa,
-              previewUrl: selectedFile.previewUrl
-            };
-
-            const newHistoryItem = {
-              id: 'h-' + Date.now(),
-              name: resultData.name,
-              type: resultData.type,
-              date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-              confidence: resultData.confidence,
-              status: status,
-              summary: resultData.summary
-            };
-
-            setScanHistory(prev => [newHistoryItem, ...prev]);
-            setActiveResult(resultData);
-            setVqaChat([
-              { sender: 'ai', text: `Visual analysis of ${resultData.name} complete. AI confidence: ${resultData.confidence}%. I am ready to answer any questions about this document.` }
-            ]);
-            setIsScanning(false);
-            setCurrentView('results');
-          }, 800);
-        }
-      }, 450);
+      // No simulated fallback. The previous version synthesised findings here
+      // whenever the API was unreachable, which meant a patient could receive
+      // invented clinical text and have no way to tell. Failing visibly is the
+      // only safe behaviour.
+      console.error('Diagnex analysis service unavailable:', err);
+      setIsScanning(false);
+      setScanProgress([]);
+      setAnalysisError(
+        err && err.modelNotTrained
+          ? 'The analysis model has not been trained yet. Run the pipeline in ml/ (build_dataset, extract, train_vqa, mine_errors), then restart the backend.'
+          : 'Could not reach the Diagnex analysis service at ' + API_BASE + '. Start it with:  uvicorn backend.main:app --port 8000'
+      );
     }
   };
 
   // Chat/VQA question handling
+  // Chat/VQA question handling. Every follow-up is a fresh model inference
+  // against the stored image, gated the same way the first answer was - the
+  // previous version replied from keyword matches without consulting the scan.
   const handleSendVqa = async (e) => {
     e.preventDefault();
     if (!vqaQuestion.trim() || !activeResult) return;
@@ -680,49 +627,45 @@ function App() {
     setVqaChat(prev => [...prev, { sender: 'user', text: userMsg }]);
     setVqaQuestion('');
 
-    if (activeResult.id && activeResult.id.startsWith('api-')) {
-      try {
-        const response = await fetch('http://localhost:8000/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            filename: activeResult.name,
-            category: activeResult.type,
-            confidence: activeResult.confidence,
-            question: userMsg,
-            summary: activeResult.summary
-          })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setVqaChat(prev => [...prev, { sender: 'ai', text: data.reply }]);
-          return;
-        }
-      } catch (err) {
-        console.warn("Backend chat unavailable, falling back to local chat simulation:", err);
-      }
+    const sessionId = activeResult.session_id || activeResult.id;
+    if (!sessionId || !String(sessionId).startsWith('api-')) {
+      setVqaChat(prev => [...prev, {
+        sender: 'ai',
+        text: 'This is a demonstration case, so follow-up questions are not answered by the model. Upload a scan in the AI Lab to ask real questions about it.'
+      }]);
+      return;
     }
 
-    setTimeout(() => {
-      const matchedQa = activeResult.qa.find(
-        item => item.q.toLowerCase().includes(userMsg.toLowerCase()) ||
-          userMsg.toLowerCase().includes(item.q.toLowerCase())
-      );
+    try {
+      const response = await fetch(API_BASE + '/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, question: userMsg })
+      });
 
-      let reply = "";
-      if (matchedQa) {
-        reply = matchedQa.a;
-      } else {
-        if (activeResult.confidence < 70) {
-          reply = `Emergency Alert: Because the confidence score is very low (${activeResult.confidence}%), I am restricted from giving detailed diagnostic answers. Please click the 'Find Nearest Specialist' button below to book an in-person diagnostic consultation immediately.`;
-        } else {
-          reply = `Regarding your scan ${activeResult.name}, the visual analysis reports ${activeResult.summary} (Certainty: ${activeResult.confidence}%). If you are experiencing symptoms like chest tightness, pain, or fever, please contact your clinician immediately rather than relying solely on automated VQA metrics.`;
-        }
+      if (response.ok) {
+        const data = await response.json();
+        setVqaChat(prev => [...prev, { sender: 'ai', text: data.reply, safety: data.safety }]);
+        return;
       }
 
-      setVqaChat(prev => [...prev, { sender: 'ai', text: reply }]);
-    }, 600);
+      if (response.status === 404) {
+        setVqaChat(prev => [...prev, {
+          sender: 'ai',
+          text: 'This scan is no longer held in memory. Images are kept for 30 minutes only and are never written to disk, so please upload it again to continue.'
+        }]);
+        return;
+      }
+
+      const detail = await response.json().catch(() => null);
+      throw new Error(detail?.detail?.message || ('analysis service returned ' + response.status));
+    } catch (err) {
+      console.error('Diagnex chat unavailable:', err);
+      setVqaChat(prev => [...prev, {
+        sender: 'ai',
+        text: 'I cannot reach the analysis service right now, so I have no answer to give you. I will not guess about a medical image. Please try again once the service is running.'
+      }]);
+    }
   };
 
   // Schedule appointment
@@ -1214,39 +1157,55 @@ function App() {
         </button>
       </div>
 
-      {/* Quick Metrics */}
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-icon">
-            <Activity size={22} />
-          </div>
-          <div className="stat-info">
-            <span className="stat-value">{scanHistory.length}</span>
-            <span className="stat-label">Scans Completed</span>
-          </div>
+      {/* How to get started — the home page guides first-time use */}
+      <div className="table-card focus-container" style={{ marginBottom: '32px' }}>
+        <div className="focus-corner top-left"></div>
+        <div className="focus-corner top-right"></div>
+        <div className="focus-corner bottom-left"></div>
+        <div className="focus-corner bottom-right"></div>
+
+        <div className="list-header">
+          <h3 style={{ margin: 0, fontSize: '1.2rem' }}>How to get started with Diagnex</h3>
         </div>
 
-        <div className="stat-card">
-          <div className="stat-icon">
-            <CheckCircle2 size={22} className="text-green" />
+        <div className="stats-grid" style={{ marginBottom: 0 }}>
+          <div className="step-card">
+            <div className="stat-icon">
+              <UploadCloud size={20} />
+            </div>
+            <div className="stat-info">
+              <strong style={{ fontSize: '0.95rem', marginBottom: '4px' }}>1. Scan &amp; Ask</strong>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                Upload an X-ray, CT, MRI, ultrasound or pathology slide and ask a question in plain language. DICOM and PNG/JPEG/TIFF are supported.
+              </span>
+              <button className="btn btn-outline-green" style={{ marginTop: '10px', padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px' }} onClick={() => setCurrentView('lab')}>
+                Start scanning <ArrowRight size={14} />
+              </button>
+            </div>
           </div>
-          <div className="stat-info">
-            <span className="stat-value">
-              {Math.round(scanHistory.reduce((acc, curr) => acc + curr.confidence, 0) / scanHistory.length)}%
-            </span>
-            <span className="stat-label">Avg. Accuracy</span>
-          </div>
-        </div>
 
-        <div className="stat-card">
-          <div className="stat-icon">
-            <ShieldAlert size={22} className="text-yellow" />
+          <div className="step-card">
+            <div className="stat-icon">
+              <ShieldAlert size={20} />
+            </div>
+            <div className="stat-info">
+              <strong style={{ fontSize: '0.95rem', marginBottom: '4px' }}>2. Read the safety gate</strong>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                Every answer carries a GREEN / YELLOW / RED trust signal. When confidence is low or a failure mode is critical, Diagnex withholds the answer rather than guess.
+              </span>
+            </div>
           </div>
-          <div className="stat-info">
-            <span className="stat-value">
-              {scanHistory.filter(h => h.status === 'RED' || h.status === 'YELLOW').length}
-            </span>
-            <span className="stat-label">Doctor Referrals</span>
+
+          <div className="step-card">
+            <div className="stat-icon">
+              <MapPin size={20} className="text-red" />
+            </div>
+            <div className="stat-info">
+              <strong style={{ fontSize: '0.95rem', marginBottom: '4px' }}>3. Verify with a doctor</strong>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                Diagnex is a screening aid for educational use — never a diagnosis. Use the specialist map to escalate findings to a qualified clinician.
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -1266,56 +1225,71 @@ function App() {
           </div>
 
           <div style={{ overflowX: 'auto' }}>
-            <table className="scans-table">
-              <thead>
-                <tr>
-                  <th>Scan Document</th>
-                  <th>Type</th>
-                  <th>Date Parsed</th>
-                  <th>Confidence</th>
-                  <th>Safety badge</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {scanHistory.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <div className="scan-title-cell">
-                        <div className="scan-icon-pill">
-                          <FileText size={16} />
-                        </div>
-                        <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{item.name}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{item.type}</span>
-                    </td>
-                    <td>
-                      <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{item.date}</span>
-                    </td>
-                    <td>
-                      <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{item.confidence}%</span>
-                    </td>
-                    <td>
-                      <span className={`badge-dot ${item.status.toLowerCase()}`}>
-                        <span className={`dot-indicator ${item.status.toLowerCase()}`}></span>
-                        {item.status}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        className="btn btn-outline-green"
-                        style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px' }}
-                        onClick={() => viewOldReport(item)}
-                      >
-                        Open Report
-                      </button>
-                    </td>
+            {scanHistory.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+                <div className="stat-icon" style={{ margin: '0 auto 16px', width: '56px', height: '56px', borderRadius: '16px' }}>
+                  <FileText size={26} />
+                </div>
+                <p style={{ margin: '0 0 6px 0', fontWeight: 700, fontSize: '1rem' }}>No scans yet</p>
+                <p style={{ margin: '0 0 20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '360px', marginLeft: 'auto', marginRight: 'auto' }}>
+                  Scans you analyse in this session appear here in real time. Upload your first scan to get started.
+                </p>
+                <button className="btn btn-primary" onClick={() => setCurrentView('lab')}>
+                  <Plus size={16} /> Scan New Image
+                </button>
+              </div>
+            ) : (
+              <table className="scans-table">
+                <thead>
+                  <tr>
+                    <th>Scan Document</th>
+                    <th>Type</th>
+                    <th>Date Parsed</th>
+                    <th>Confidence</th>
+                    <th>Safety badge</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {scanHistory.map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        <div className="scan-title-cell">
+                          <div className="scan-icon-pill">
+                            <FileText size={16} />
+                          </div>
+                          <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{item.name}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{item.type}</span>
+                      </td>
+                      <td>
+                        <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{item.date}</span>
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{item.confidence}%</span>
+                      </td>
+                      <td>
+                        <span className={`badge-dot ${item.status.toLowerCase()}`}>
+                          <span className={`dot-indicator ${item.status.toLowerCase()}`}></span>
+                          {item.status}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-outline-green"
+                          style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px' }}
+                          onClick={() => viewOldReport(item)}
+                        >
+                          Open Report
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
@@ -1335,7 +1309,7 @@ function App() {
               </div>
               <div className="tool-info">
                 <h4>Launch Diagnostic AI</h4>
-                <p>Run CrossGate-VQA classification on new scans.</p>
+                <p>Run safety-gated VQA analysis on a new scan.</p>
               </div>
             </div>
 
@@ -1351,11 +1325,13 @@ function App() {
 
             <div className="tool-button" style={{ cursor: 'default' }}>
               <div className="tool-icon-wrap">
-                <Phone size={18} className="text-yellow" />
+                <ShieldAlert size={18} className="text-yellow" />
               </div>
               <div className="tool-info">
-                <h4>Medical Hotline</h4>
-                <p>Direct telehealth connection: +1 800 DIAGNEX</p>
+                <h4>Medical Disclaimer</h4>
+                <p style={{ fontSize: '0.75rem', lineHeight: 1.5 }}>
+                  Diagnex is a screening aid for educational use. It is not a medical diagnosis and does not replace examination by a qualified doctor.
+                </p>
               </div>
             </div>
           </div>
@@ -1617,8 +1593,26 @@ function App() {
               </>
             )}
           </button>
+          {analysisError && (
+            <div
+              className="glass-card mt-24"
+              style={{ border: '1px solid rgba(239, 68, 68, 0.35)', background: 'var(--color-red-bg)', padding: '14px' }}
+            >
+              <h4 style={{ margin: '0 0 6px 0', color: 'var(--color-red)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                <AlertCircle size={16} /> Analysis unavailable
+              </h4>
+              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                {analysisError}
+              </p>
+              <p style={{ margin: '8px 0 0 0', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                No result is shown because none was produced. This screen will never display a
+                simulated finding in place of a real one.
+              </p>
+            </div>
+          )}
           <div className="text-center mt-24" style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            CrossGate-VQA Engine · 206.7M parameter weight · HIPAA Compliant Telemetry
+            BiomedCLIP ViT-B/16 (frozen) + trained VQA head · abstains below {TAU_ABSTAIN_PCT}% ·
+            DICOM identifiers stripped on upload
           </div>
         </div>
       </div>
@@ -1633,7 +1627,7 @@ function App() {
       <div className="dashboard-header" style={{ marginBottom: '24px' }}>
         <div>
           <h1 style={{ fontSize: '2rem', margin: '0' }}>Analysis Result</h1>
-          <p style={{ margin: '6px 0 0 0', fontSize: '0.9rem' }}>CrossGate-VQA Visual Telemetry Evaluation</p>
+          <p style={{ margin: '6px 0 0 0', fontSize: '0.9rem' }}>Safety-gated visual question answering</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button className="btn btn-secondary" onClick={() => setCurrentView('lab')}>
@@ -1773,24 +1767,24 @@ function App() {
           {/* Safety Traffic Lights badge card grid */}
           <div className="traffic-light-container">
             {/* GREEN DOT */}
-            <div className={`traffic-badge-card green ${activeResult.confidence >= 85 ? 'active' : ''}`}>
-              <div className={`traffic-dot-circle green ${activeResult.confidence >= 85 ? 'green' : ''}`}></div>
+            <div className={`traffic-badge-card green ${activeResult.status === 'GREEN' ? 'active' : ''}`}>
+              <div className={`traffic-dot-circle green ${activeResult.status === 'GREEN' ? 'green' : ''}`}></div>
               <span className="traffic-badge-title">GREEN Dot</span>
-              <p className="traffic-badge-desc">Sure (&gt;85% confidence score)</p>
+              <p className="traffic-badge-desc">Sure (&gt;{TAU_GREEN_PCT}% confidence score)</p>
             </div>
 
             {/* YELLOW DOT */}
-            <div className={`traffic-badge-card yellow ${activeResult.confidence >= 70 && activeResult.confidence < 85 ? 'active' : ''}`}>
-              <div className={`traffic-dot-circle yellow ${activeResult.confidence >= 70 && activeResult.confidence < 85 ? 'yellow' : ''}`}></div>
+            <div className={`traffic-badge-card yellow ${activeResult.status === 'YELLOW' ? 'active' : ''}`}>
+              <div className={`traffic-dot-circle yellow ${activeResult.status === 'YELLOW' ? 'yellow' : ''}`}></div>
               <span className="traffic-badge-title">YELLOW Dot</span>
-              <p className="traffic-badge-desc">Verify (70% - 85% confidence score)</p>
+              <p className="traffic-badge-desc">Verify ({TAU_ABSTAIN_PCT}% - {TAU_GREEN_PCT}% confidence score)</p>
             </div>
 
             {/* RED DOT */}
-            <div className={`traffic-badge-card red ${activeResult.confidence < 70 ? 'active' : ''}`}>
-              <div className={`traffic-dot-circle red ${activeResult.confidence < 70 ? 'red' : ''}`}></div>
+            <div className={`traffic-badge-card red ${activeResult.status === 'RED' ? 'active' : ''}`}>
+              <div className={`traffic-dot-circle red ${activeResult.status === 'RED' ? 'red' : ''}`}></div>
               <span className="traffic-badge-title">RED Dot</span>
-              <p className="traffic-badge-desc">ALERT (&lt;70% confidence score)</p>
+              <p className="traffic-badge-desc">ALERT (&lt;{TAU_ABSTAIN_PCT}% confidence score)</p>
             </div>
           </div>
 
@@ -1810,22 +1804,90 @@ function App() {
               </div>
               <div className="confidence-bar-outer">
                 <div
-                  className={`confidence-bar-inner ${activeResult.confidence >= 85 ? 'green' : activeResult.confidence >= 70 ? 'yellow' : 'red'}`}
+                  className={`confidence-bar-inner ${activeResult.status === 'GREEN' ? 'green' : activeResult.status === 'YELLOW' ? 'yellow' : 'red'}`}
                   style={{ width: `${activeResult.confidence}%` }}
                 ></div>
               </div>
             </div>
           </div>
 
-          {/* Honest Uncertainty Disclaimer */}
-          {activeResult.confidence < 70 && (
+          {/* Danger zone: model passed the confidence gate, but its most likely
+              failure mode carries high clinical impact. This is the quadrant the
+              source research puts 26.8% of all errors in. */}
+          {activeResult.safety?.danger_zone && (
+            <div className="glass-card mb-24" style={{ border: '1px solid rgba(245, 158, 11, 0.45)', backgroundColor: 'rgba(245, 158, 11, 0.06)', padding: '16px' }}>
+              <h4 style={{ margin: '0 0 6px 0', color: 'var(--color-yellow)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
+                <AlertTriangle size={16} /> Danger Zone: confident, but the likely mistake is serious
+              </h4>
+              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                The model is confident enough to pass the {TAU_ABSTAIN_PCT}% safety gate, yet its most
+                likely failure mode carries high clinical impact (expected impact score{' '}
+                {activeResult.safety.expected_cis?.toFixed(1)}/5.0). Published analysis places 26.8% of
+                all errors in exactly this confidently-wrong quadrant. Independent confirmation is advised.
+              </p>
+            </div>
+          )}
+
+          {/* Honest Uncertainty: shown only when the gate actually withheld an answer. */}
+          {activeResult.safety?.abstain && (
             <div className="glass-card mb-24" style={{ border: '1px solid rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.05)', padding: '16px' }}>
               <h4 style={{ margin: '0 0 6px 0', color: 'var(--color-red)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
-                <ShieldAlert size={16} /> Safety Lock: Honest Uncertainty
+                <ShieldAlert size={16} /> Safety Lock: Answer Withheld
               </h4>
-              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                The AI model has abstained from confirming diagnosis bounds due to high variance index. To maintain safety regulations, direct physician inspection is required.
+              <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                {activeResult.safety.message}
+                {activeResult.safety.downgrade_reason && ` ${activeResult.safety.downgrade_reason}`}
+                {' '}Abstaining below {TAU_ABSTAIN_PCT}% removes 51.1% of critical errors while keeping
+                91.8% of correct answers, so withholding here is the system working as designed.
               </p>
+            </div>
+          )}
+
+          {/* "Why might the AI be wrong?" - the 12-category error taxonomy. */}
+          {activeResult.safety?.likely_error && (
+            <div className="glass-card mb-24" style={{ padding: '16px' }}>
+              <h4 style={{ margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
+                <HelpCircle size={16} className="text-green" /> If this answer is wrong, how would it be wrong?
+              </h4>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', padding: '2px 7px', borderRadius: '4px', background: 'var(--soft-green)', color: 'var(--dark-green)', fontWeight: 700 }}>
+                  {activeResult.safety.likely_error.code}
+                </span>
+                <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{activeResult.safety.likely_error.name}</span>
+                <span style={{
+                  fontSize: '0.6rem', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+                  color: activeResult.safety.likely_error.risk === 'CRITICAL' || activeResult.safety.likely_error.risk === 'HIGH' ? 'var(--color-red)' : 'var(--color-yellow)',
+                  background: activeResult.safety.likely_error.risk === 'CRITICAL' || activeResult.safety.likely_error.risk === 'HIGH' ? 'var(--color-red-bg)' : 'var(--color-yellow-bg)'
+                }}>
+                  {activeResult.safety.likely_error.risk} RISK
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  {Math.round((activeResult.safety.likely_error.probability || 0) * 100)}% likely
+                </span>
+              </div>
+              <p style={{ margin: '0 0 6px 0', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                {activeResult.safety.likely_error.plain_english} For example: {activeResult.safety.likely_error.example}
+              </p>
+              {activeResult.safety.likely_error.provisional && (
+                <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  This category is a provisional reconstruction. The source research states the taxonomy
+                  has 12 categories but enumerates only 8.
+                </p>
+              )}
+              {activeResult.alternatives?.length > 0 && (
+                <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--panel-border)' }}>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    The model also considered
+                  </span>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                    {activeResult.alternatives.map((alt) => (
+                      <span key={alt.answer} style={{ fontSize: '0.72rem', padding: '3px 8px', borderRadius: '5px', background: 'var(--light-mint)', color: 'var(--text-primary)' }}>
+                        {alt.answer} <strong>{Math.round(alt.probability * 100)}%</strong>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -190,6 +190,30 @@ TAXONOMY: tuple[ErrorCategory, ...] = (
     ),
 )
 
+#: Per-dataset error signatures reported in the source research
+#: (MedSafe_AI_Presentation slide 6, "3 Domain-Specific Error Signatures").
+#: The aggregate distribution is not the right comparison for our model,
+#: because our training mix is 78% PathVQA and the published aggregate is not.
+#: Comparing per dataset is like for like. `danger_zone` is the share of that
+#: dataset's errors the research places in the confident-and-wrong quadrant.
+PUBLISHED_SIGNATURES: dict[str, dict] = {
+    "vqa-rad": {
+        "label": "Radiology - detection-dominated",
+        "rates": {"3.2": 0.373, "3.1": 0.227},
+        "danger_zone": 0.53,
+    },
+    "path-vqa": {
+        "label": "Histopathology - recognition-dominated",
+        "rates": {"1.1": 0.317, "2.2": 0.216},
+        "danger_zone": 0.26,
+    },
+    "slake": {
+        "label": "Mixed radiology - spatial/counting",
+        "rates": {"1.3": 0.208, "3.3": 0.100},
+        "danger_zone": 0.17,
+    },
+}
+
 BY_CODE: dict[str, ErrorCategory] = {c.code: c for c in TAXONOMY}
 CODES: tuple[str, ...] = tuple(c.code for c in TAXONOMY)
 

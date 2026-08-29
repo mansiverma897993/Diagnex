@@ -121,6 +121,14 @@ _RED_MSG = (
     "The AI is not confident enough to give a reliable answer for this "
     "question. Please consult a qualified doctor."
 )
+#: RED reached from *adequate* confidence via a risk override. Reusing the
+#: low-confidence wording here would tell the patient the model was unsure when
+#: it was in fact confident and overruled on the severity of its likely mistake.
+_RED_RISK_MSG = (
+    "The AI is reasonably confident, but the way this answer would most likely "
+    "be wrong is serious enough that we will not stand behind it. Please "
+    "consult a qualified doctor."
+)
 
 
 def expected_cis(error_probs: dict[str, float]) -> float:
@@ -192,7 +200,12 @@ def assess(confidence: float, error_probs: dict[str, float]) -> SafetyAssessment
         )
         band = Band.YELLOW
 
-    message = {Band.GREEN: _GREEN_MSG, Band.YELLOW: _YELLOW_MSG, Band.RED: _RED_MSG}[band]
+    if band is Band.RED:
+        # Distinguish the two routes to RED: genuinely unsure, versus confident
+        # but overruled because the likely mistake is severe.
+        message = _RED_MSG if confidence < TAU_ABSTAIN else _RED_RISK_MSG
+    else:
+        message = {Band.GREEN: _GREEN_MSG, Band.YELLOW: _YELLOW_MSG}[band]
 
     return SafetyAssessment(
         band=band,

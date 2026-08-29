@@ -167,12 +167,39 @@ def main() -> int:
     if agreement["agreement"] is not None:
         log(f"labeller agreement vs SLAKE content_type: {agreement['agreement']:.1%} (n={agreement['scored']})")
 
-    log("error distribution (ours vs published):")
+    log("aggregate error distribution (ours vs published aggregate):")
     for cat in taxonomy.TAXONOMY:
         ours = dist_counts.get(cat.code, 0) / max(1, total)
         pub = f"{cat.published_rate:.1%}" if cat.published_rate is not None else "  n/a"
         flag = "" if cat.is_published else "  (provisional category)"
         log(f"  {cat.code} {cat.name[:34]:34s} ours {ours:6.1%}   published {pub}{flag}")
+
+    # The aggregate above is not a like-for-like comparison: our training mix is
+    # 78% PathVQA, the published aggregate is not. Per dataset it is.
+    all_errors = train_err + test_err
+    per_dataset: dict[str, dict] = {}
+    log("")
+    log("per-dataset signatures (the comparable view):")
+    for ds, sig in taxonomy.PUBLISHED_SIGNATURES.items():
+        subset = [e for e in all_errors if e["dataset"] == ds]
+        if not subset:
+            continue
+        counts = Counter(e["error_code"] for e in subset)
+        rates = {c: counts.get(c, 0) / len(subset) for c in taxonomy.CODES}
+        coverage = sum(1 for e in subset if e["rule_confident"]) / len(subset)
+        dominant = sorted(rates.items(), key=lambda kv: kv[1], reverse=True)[:2]
+        log(f"  {ds} - {sig['label']}  (n={len(subset)}, rule coverage {coverage:.0%})")
+        for cd, expected in sig["rates"].items():
+            log(f"      {cd} {taxonomy.get(cd).name[:30]:30s} ours {rates[cd]:6.1%}   published {expected:.1%}")
+        top = ", ".join(f"{c} {r:.1%}" for c, r in dominant)
+        log(f"      our top two: {top}")
+        per_dataset[ds] = {
+            "n": len(subset),
+            "rule_coverage": coverage,
+            "rates": rates,
+            "published": sig,
+        }
+    log("")
 
     # --- Train the predictor ----------------------------------------------
     code_to_idx = {c: i for i, c in enumerate(taxonomy.CODES)}
@@ -234,6 +261,7 @@ def main() -> int:
         "published_distribution": {
             c.code: c.published_rate for c in taxonomy.TAXONOMY if c.published_rate is not None
         },
+        "per_dataset": per_dataset,
     }
 
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)

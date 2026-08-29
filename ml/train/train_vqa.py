@@ -145,10 +145,17 @@ def main() -> int:
     ap.add_argument("--weight-decay", type=float, default=1e-4)
     ap.add_argument("--hidden", type=int, default=512)
     ap.add_argument("--dropout", type=float, default=0.3)
-    ap.add_argument("--min-answer-count", type=int, default=3)
-    ap.add_argument("--max-answers", type=int, default=1500)
+    ap.add_argument("--min-answer-count", type=int, default=1)
+    ap.add_argument("--max-answers", type=int, default=6000)
     ap.add_argument("--tfidf-features", type=int, default=3000)
     ap.add_argument("--patience", type=int, default=8)
+    ap.add_argument(
+        "--balance-datasets",
+        action="store_true",
+        help="sample each dataset with equal weight per epoch. PathVQA is 78%% "
+        "of the training rows, so unweighted training lets it dominate the head "
+        "and the radiology sets (VQA-RAD, SLAKE) suffer for it",
+    )
     args = ap.parse_args()
 
     torch.manual_seed(SEED)
@@ -223,7 +230,7 @@ def main() -> int:
             keep,
         )
 
-    tr_img, tr_txt, tr_y, _ = make_split("train", keep_oov=False)
+    tr_img, tr_txt, tr_y, tr_rows = make_split("train", keep_oov=False)
     va_img, va_txt, va_y, va_rows = make_split("val", keep_oov=True)
     te_img, te_txt, te_y, te_rows = make_split("test", keep_oov=True)
     log(f"tensors: train {tuple(tr_img.shape)}, val {tuple(va_img.shape)}, test {tuple(te_img.shape)}")
@@ -248,9 +255,22 @@ def main() -> int:
     n = tr_img.shape[0]
     t0 = time.time()
 
+    # Per-epoch sampling weights. Without this the head sees ~4 PathVQA rows for
+    # every radiology row and optimises for histopathology answer priors.
+    sample_weights = None
+    if args.balance_datasets:
+        ds_counts = Counter(r["dataset"] for r in tr_rows)
+        sample_weights = torch.tensor(
+            [1.0 / ds_counts[r["dataset"]] for r in tr_rows], dtype=torch.double
+        )
+        log(f"dataset-balanced sampling over {dict(ds_counts)}")
+
     for epoch in range(1, args.epochs + 1):
         model.train()
-        perm = torch.randperm(n)
+        if sample_weights is not None:
+            perm = torch.multinomial(sample_weights, n, replacement=True)
+        else:
+            perm = torch.randperm(n)
         total_loss = 0.0
         for start in range(0, n, args.batch_size):
             sel = perm[start : start + args.batch_size]

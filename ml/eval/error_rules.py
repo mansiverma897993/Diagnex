@@ -172,7 +172,13 @@ def rule_localisation(q: str, gold: str, pred: str) -> str | None:
 
 
 def rule_anatomy_mixup(q: str, gold: str, pred: str) -> str | None:
-    """1.1 - one organ mistaken for *another*.
+    """1.1 - the depicted entity mistaken for *another* entity.
+
+    Matches organ-for-organ, tissue-for-tissue and lesion-for-lesion
+    confusions. The broad reading follows the source research, which reports
+    31.7% of PathVQA errors as "Anatomical Misidentification" on a
+    histopathology corpus containing almost no gross anatomy - see
+    lexicon.is_medical_entity.
 
     Naming a less specific structure ("lobe" for "left lower lobe") is not a
     misidentification: the model named the right thing, just too coarsely. That
@@ -181,7 +187,7 @@ def rule_anatomy_mixup(q: str, gold: str, pred: str) -> str | None:
     """
     if _is_vaguer(pred, gold):
         return None
-    if lexicon.is_anatomy(gold) and lexicon.is_anatomy(pred):
+    if lexicon.is_medical_entity(gold) and lexicon.is_medical_entity(pred):
         if lexicon.normalize_answer(gold) != lexicon.normalize_answer(pred):
             return "1.1"
     return None
@@ -249,12 +255,31 @@ def label_error(question: str, gold: str, pred: str) -> ErrorLabel:
         if code is not None:
             return ErrorLabel(code=code, rule=name, confident=True)
 
-    # Residual: nothing matched positively. Prefer the category implied by the
-    # question form rather than silently defaulting everything to one bucket.
-    if lexicon.question_starts_with(question, lexicon.LOCATION_STEMS):
-        return ErrorLabel("3.4", "residual_location", confident=False)
+    # Residual: nothing matched positively. Route by whatever signal the
+    # question form still offers, rather than tipping every unmatched error
+    # into one bucket - doing that inflates a single category and makes the
+    # resulting distribution meaningless.
+    stem_routes = (
+        (lexicon.COUNT_STEMS, "3.3", "residual_count"),
+        (lexicon.LOCATION_STEMS, "3.4", "residual_location"),
+        (lexicon.MODALITY_STEMS, "1.2", "residual_modality"),
+        (lexicon.PLANE_STEMS, "1.2", "residual_plane"),
+        (lexicon.ATTRIBUTE_STEMS, "2.3", "residual_attribute"),
+        (lexicon.DISEASE_STEMS, "2.2", "residual_disease"),
+        (lexicon.ANATOMY_STEMS, "1.1", "residual_anatomy"),
+    )
+    for stems, code_, rule in stem_routes:
+        if lexicon.question_starts_with(question, stems):
+            return ErrorLabel(code_, rule, confident=False)
+
+    if lexicon.is_closed(gold) != lexicon.is_closed(pred):
+        return ErrorLabel("4.2", "residual_type_mismatch", confident=False)
     if lexicon.is_closed(gold):
         return ErrorLabel("4.2", "residual_closed", confident=False)
+    # One side names something concrete and the other does not: the model
+    # answered in the wrong register, which is a domain confusion.
+    if lexicon.is_medical_entity(gold) != lexicon.is_medical_entity(pred):
+        return ErrorLabel("2.2", "residual_domain", confident=False)
     return ErrorLabel("2.1", "residual_open", confident=False)
 
 

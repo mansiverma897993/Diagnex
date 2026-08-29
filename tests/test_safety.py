@@ -165,6 +165,37 @@ def test_to_dict_marks_provisional_categories():
 # --- taxonomy integrity ----------------------------------------------------
 
 
+def test_abstention_reason_distinguishes_its_two_causes():
+    """A high-confidence risk override must not be reported as "below 60%".
+
+    Both causes end in an abstention, but conflating them tells the patient the
+    model was unsure when it was in fact 94% sure and overridden on risk.
+    """
+    from backend.app.report import abstention_reason
+
+    low = safety.assess(0.30, benign())
+    assert low.abstain
+    text = abstention_reason(low)
+    assert "below" in text and "60%" in text
+
+    override = safety.assess(0.94, flat_errors(**{"3.1": 0.5}))
+    assert override.abstain, "a likely critical failure must force abstention"
+    text = abstention_reason(override)
+    assert "below" not in text
+    assert "94%" in text
+    assert "CRITICAL" in text
+
+
+def test_abstention_reason_never_misstates_confidence():
+    from backend.app.report import abstention_reason
+
+    for conf in (0.62, 0.75, 0.88, 0.99):
+        a = safety.assess(conf, flat_errors(**{"3.1": 0.6}))
+        if a.abstain:
+            assert f"{conf:.0%}" in abstention_reason(a)
+            assert "below the 60% safety threshold" not in abstention_reason(a)
+
+
 def test_taxonomy_has_twelve_unique_categories():
     assert len(taxonomy.TAXONOMY) == 12
     assert len({c.code for c in taxonomy.TAXONOMY}) == 12

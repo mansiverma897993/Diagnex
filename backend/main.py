@@ -317,8 +317,8 @@ async def upload(
                 "a": (
                     f"{extra.answer} ({extra.confidence:.0%} confidence, {extra.assessment.band.value})"
                     if not extra.assessment.abstain
-                    else f"Withheld - {extra.confidence:.0%} confidence is below the 60% safety "
-                    f"threshold. {extra.assessment.message}"
+                    else f"Withheld - {report.abstention_reason(extra.assessment)}. "
+                    f"{extra.assessment.message}"
                 ),
                 "status": extra.assessment.band.value,
                 "confidence": round(extra.confidence * 100),
@@ -392,10 +392,10 @@ async def chat(req: ChatRequest):
 
     if assessment.abstain:
         reply = (
-            f"I am not confident enough to answer that. My best answer carries only "
-            f"{analysis.confidence:.0%} confidence, below the 60% threshold this system "
-            f"requires. {assessment.message} If this matters for a health decision, "
-            f"please use 'Find Nearest Specialist' below."
+            f"I will not stand behind an answer to that, because "
+            f"{report.abstention_reason(assessment)}. {assessment.message} "
+            f"If this matters for a health decision, please use "
+            f"'Find Nearest Specialist' below."
         )
     else:
         reply = (

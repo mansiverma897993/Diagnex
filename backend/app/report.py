@@ -13,7 +13,7 @@ be structurally incapable of producing them.
 
 from __future__ import annotations
 
-from .safety import Band, SafetyAssessment
+from .safety import TAU_ABSTAIN, Band, SafetyAssessment
 
 DISCLAIMER = (
     "Diagnex is a screening aid for educational use. It is not a medical "
@@ -34,6 +34,27 @@ def modality_label(tag: str) -> str:
     return _MODALITY_LABEL.get((tag or "").lower(), tag or "medical image")
 
 
+def abstention_reason(assessment: SafetyAssessment) -> str:
+    """Why an answer was withheld, in one clause.
+
+    Abstention has two distinct causes and they must not be conflated: the
+    confidence fell below tau, or the confidence was fine but the predicted
+    failure mode was severe enough to override it. Reporting "below the 60%
+    threshold" for a 94%-confidence answer is simply false, and a patient
+    reading it would draw the wrong conclusion about how sure the model was.
+    """
+    if assessment.confidence < TAU_ABSTAIN:
+        return (
+            f"its confidence of {assessment.confidence:.0%} is below the "
+            f"{TAU_ABSTAIN:.0%} safety threshold"
+        )
+    return (
+        f"although its confidence is {assessment.confidence:.0%}, the most likely way "
+        f"this answer could be wrong is {assessment.likely_error.name.lower()}, which "
+        f"carries {assessment.likely_error.risk.value} clinical risk"
+    )
+
+
 def summarise(
     *,
     question: str,
@@ -45,8 +66,7 @@ def summarise(
     label = modality_label(modality)
     if assessment.abstain:
         return (
-            f"AI declined to answer this {label} question "
-            f"({assessment.confidence:.0%} confidence, below the 60% safety threshold). "
+            f"AI declined to answer this {label} question - {abstention_reason(assessment)}. "
             "Referred to a doctor."
         )
     return f'{label}: answered "{answer}" with {assessment.confidence:.0%} confidence ({assessment.band.value}).'
@@ -68,10 +88,8 @@ def compose(
 
     if assessment.abstain:
         lines.append(
-            f"ANSWER WITHHELD - SAFETY THRESHOLD NOT MET. "
-            f"You asked: \"{question}\". The model's confidence in its best answer is "
-            f"{assessment.confidence:.0%}, below the 60% threshold this system requires "
-            f"before it will stand behind an answer about a {label}."
+            f"ANSWER WITHHELD. You asked: \"{question}\". The system will not stand "
+            f"behind an answer about this {label} because {abstention_reason(assessment)}."
         )
         lines.append(
             "Published analysis of this error taxonomy found that abstaining below 60% "

@@ -89,6 +89,23 @@ ABNORMALITY: frozenset[str] = frozenset(
     """.split()
 )
 
+#: Tissue, cell and histology terms. PathVQA answers name these constantly and
+#: they are neither "anatomy" (an organ) nor "abnormality" (a disease), so
+#: without them a large share of pathology errors match no rule at all.
+TISSUE: frozenset[str] = frozenset(
+    """
+    epithelium epithelial endothelium endothelial stroma stromal parenchyma
+    connective adipose fibrous muscular smooth skeletal cardiac squamous
+    columnar cuboidal glandular acinar ductal lobular tubular alveolar
+    cell cells nucleus nuclei nucleoli cytoplasm membrane basement lumen
+    lymphocyte lymphocytes neutrophil neutrophils macrophage macrophages
+    eosinophil eosinophils plasma erythrocyte erythrocytes fibroblast
+    fibroblasts myocyte hepatocyte keratin collagen elastin mucin glycogen
+    villi crypt crypts gland glands follicle follicles septa septum trabeculae
+    capsule cortex medulla papilla sinusoid canaliculi tubule glomerulus
+    """.split()
+)
+
 MODALITY_TERMS: dict[str, frozenset[str]] = {
     "xray": frozenset("xray x-ray radiograph radiography plain film cxr kub".split()),
     "ct": frozenset("ct cat computed tomography".split()),
@@ -185,6 +202,23 @@ def is_abnormality(text: str) -> bool:
 
 def is_attribute(text: str) -> bool:
     return _has_any(text, ATTRIBUTE)
+
+
+def is_tissue(text: str) -> bool:
+    return _has_any(text, TISSUE)
+
+
+def is_medical_entity(text: str) -> bool:
+    """True when the text names *a thing depicted in the image*.
+
+    Covers organs, diseases and tissue/cell structures alike. The distinction
+    matters for error category 1.1: the source research reports 31.7%
+    "Anatomical Misidentification" on PathVQA, a histopathology set with
+    virtually no gross anatomy in it, so that category is evidently counting
+    misidentification of the depicted entity in general - naming the wrong
+    tissue or the wrong lesion - not strictly organ-for-organ confusion.
+    """
+    return is_anatomy(text) or is_abnormality(text) or is_tissue(text)
 
 
 def is_normal_claim(text: str) -> bool:

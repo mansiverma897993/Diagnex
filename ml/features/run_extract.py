@@ -23,7 +23,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve()
 FEATURE_DIR = Path(r"D:\diagnex\data\features")
-MAX_ATTEMPTS = 60
+MAX_ATTEMPTS = 400
+#: Consecutive attempts that may fail without advancing before we conclude the
+#: failure is real rather than the intermittent allocator fault.
+STALL_LIMIT = 25
 
 
 def progress() -> tuple[int, int]:
@@ -40,7 +43,13 @@ def progress() -> tuple[int, int]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--batch-size", type=int, default=32)
-    ap.add_argument("--threads", type=int, default=4)
+    ap.add_argument(
+        "--threads",
+        type=int,
+        default=0,
+        help="0 (default) leaves OpenMP to size its own pool, which is the "
+        "only configuration observed to survive model construction here",
+    )
     args = ap.parse_args()
 
     cmd = [sys.executable, str(HERE.parent / "extract.py"), "--batch-size", str(args.batch_size)]
@@ -50,7 +59,9 @@ def main() -> int:
     # afterwards and then building the ViT faults the process.
     import os
 
-    env = dict(os.environ, DIAGNEX_THREADS=str(args.threads))
+    env = dict(os.environ)
+    if args.threads:
+        env["DIAGNEX_THREADS"] = str(args.threads)
 
     last = progress()
     stalled = 0
@@ -71,11 +82,18 @@ def main() -> int:
             flush=True,
         )
 
-        # A crash that makes no headway twice running is a real bug, not the
-        # flaky allocator; stop rather than spin.
+        # The fault is intermittent and frequently lands during model
+        # construction, before any batch runs - so a no-progress attempt is
+        # normal, not a signal of a real bug. Earlier runs crashed at load
+        # several times and then loaded cleanly and processed ~1000 images.
+        # Allow a generous run of barren attempts before concluding it is
+        # genuinely stuck.
         stalled = 0 if moved else stalled + 1
-        if stalled >= 2:
-            print("[run] no progress across two attempts; giving up", flush=True)
+        if stalled >= STALL_LIMIT:
+            print(
+                f"[run] {STALL_LIMIT} consecutive attempts with no progress; giving up",
+                flush=True,
+            )
             return 1
         last = now
         time.sleep(2)

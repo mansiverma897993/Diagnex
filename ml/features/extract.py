@@ -41,10 +41,15 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 # Thread count is configured through the environment, never through
-# torch.set_num_threads(). Resizing the OpenMP pool after torch has loaded and
-# then constructing the timm ViT reliably faults here (0xC0000005); setting it
-# before import is stable. run_extract.py passes this through.
-os.environ.setdefault("OMP_NUM_THREADS", os.environ.get("DIAGNEX_THREADS", "8"))
+# torch.set_num_threads(): resizing the OpenMP pool after torch has loaded and
+# then constructing the timm ViT faults immediately (0xC0000005).
+#
+# Left unset by default. Pinning OMP_NUM_THREADS also faults this build at
+# model-construction time, whereas letting OpenMP pick its own pool size gets
+# through load and runs. Only honoured when DIAGNEX_THREADS is set explicitly,
+# so the default path is the one observed to work.
+if os.environ.get("DIAGNEX_THREADS"):
+    os.environ.setdefault("OMP_NUM_THREADS", os.environ["DIAGNEX_THREADS"])
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
