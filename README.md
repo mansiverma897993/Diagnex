@@ -1,4 +1,4 @@
-# Diagnex - AI Medical Imaging & Radiologist VQA Portal
+# Diagnex : AI Medical Imaging & Radiologist VQA Portal
 
 Upload an X-ray, CT, MRI,
 ultrasound or pathology slide, ask a question in natural language, and get an
