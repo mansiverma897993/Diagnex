@@ -1,8 +1,8 @@
 # Diagnex - AI Medical Imaging & Radiologist VQA Portal
 
-**Safety-gated medical Visual Question Answering.** Upload an X-ray, CT, MRI,
+Upload an X-ray, CT, MRI,
 ultrasound or pathology slide, ask a question in natural language, and get an
-answer **together with an honest account of how much to trust it** — or a
+answer **together with an honest account of how much to trust it** or a
 refusal, when the model should not be trusted.
 
 > **Screening aid for educational use. Not a medical diagnosis, and not a
@@ -11,8 +11,8 @@ refusal, when the model should not be trusted.
 The premise, taken from the project's source research: medical VQA models are
 *dangerously overconfident when wrong*, with **26.8% of errors** landing in a
 "clinical danger zone" where the model is simultaneously incorrect and highly
-confident. The point of this system is not to be right every time — no published
-medical VQA model is — but to **know when it might be wrong, and say so**.
+confident. The point of this system is not to be right every time no published
+medical VQA model is but to **know when it might be wrong, and say so**.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-18%2B-339933?logo=nodedotjs&logoColor=white)
@@ -25,20 +25,20 @@ medical VQA model is — but to **know when it might be wrong, and say so**.
 
 ## Features
 
-- **Multi-modal intake** — X-ray, CT, MRI, ultrasound and histopathology slides,
+- **Multi-modal intake** : X-ray, CT, MRI, ultrasound and histopathology slides,
   uploaded as PNG/JPEG/TIFF or native **DICOM**.
-- **Natural-language VQA** — closed (yes/no) and open-ended questions answered
+- **Natural-language VQA** : closed (yes/no) and open-ended questions answered
   over a 3,698-word medical answer vocabulary.
-- **Honest uncertainty gate** — a traffic-light (GREEN / YELLOW / RED) that
+- **Honest uncertainty gate** : a traffic-light (GREEN / YELLOW / RED) that
   withholds answers rather than bluff, driven by *calibrated* confidence **and**
   a predicted failure mode.
-- **Follow-up chat** — de-identified pixels live in a TTL-bounded in-memory
+- **Follow-up chat** : de-identified pixels live in a TTL-bounded in-memory
   session cache (30 min), so you can ask a series of questions about one scan.
-- **Zero fabrication by design** — every report sentence is derived from model
+- **Zero fabrication by design** : every report sentence is derived from model
   output. Withheld answers are removed from the API response body, not flagged.
-- **De-identification at the boundary** — DICOM tags and EXIF are stripped
+- **De-identification at the boundary** : DICOM tags and EXIF are stripped
   before pixels reach any other code; nothing is written to disk.
-- **Runs on CPU** — the vision transformer is frozen and executed once during
+- **Runs on CPU** : the vision transformer is frozen and executed once during
   feature extraction, so the whole system trains and serves on a laptop.
 
 ---
@@ -66,8 +66,8 @@ Confidence alone is not sufficient, so **two signals** drive every decision:
    0.60 cut on uncalibrated scores would not mean what the research says it
    means. A temperature fitted on the validation split (see
    `ml/train/train_vqa.py`) brings the calibration error down to **0.083**.
-2. **A 12-way error-type prediction** — *if* this answer is wrong, how is it
-   most likely wrong? — which feeds an expected **Clinical Impact Score**.
+2. **A 12-way error-type prediction** *if* this answer is wrong, how is it
+   most likely wrong? which feeds an expected **Clinical Impact Score**.
 
 The second signal is what separates this from a plain threshold:
 
@@ -87,7 +87,7 @@ tumour. That is the whole idea.
 | 🟡 YELLOW | 60–85%, or GREEN downgraded by a high-risk failure mode | Answer shown, verify with a doctor |
 | 🔴 RED | < 60%, or a likely CRITICAL failure mode | **Answer withheld**, doctor finder shown |
 
-A withheld answer is *removed from the API response body*, not merely flagged —
+A withheld answer is *removed from the API response body*, not merely flagged
 the client cannot render what it was never sent.
 
 **Danger zone.** When the model is confident enough to pass the gate but its
@@ -117,7 +117,7 @@ Per dataset:
 | PathVQA | 6,719 | 60.9% | 86.8% | 34.9% |
 | VQA-RAD | 451 | 41.9% | 63.3% | 15.0% |
 
-### The abstention trade-off — the reason this project exists
+### The abstention trade-off the reason this project exists
 
 Withholding low-confidence answers is what converts a 62.8%-accurate model into
 a system that is safe to put in front of a patient:
@@ -131,7 +131,7 @@ a system that is safe to put in front of a patient:
 | τ = 0.85 | 56.7% | 89.0% | 83.2% |
 
 At the published threshold of τ = 0.60 the system declines about three questions
-in ten, and is right **81.9%** of the time on the rest — a 19-point improvement
+in ten, and is right **81.9%** of the time on the rest a 19-point improvement
 over answering everything.
 
 ---
@@ -207,7 +207,7 @@ Two design choices worth explaining:
   that a concatenation-only head scores well while barely consulting the image.
   The multiplicative term forces image and question to agree.
 - **TF-IDF alongside the CLIP text embedding.** Contrastive text encoders
-  represent negation poorly — "is there a mass" and "is there *no* mass" sit
+  represent negation poorly "is there a mass" and "is there *no* mass" sit
   close together in CLIP space. Since negation is itself error category 4.1, the
   head needs a representation that separates them.
 
@@ -236,7 +236,7 @@ flowchart LR
 ```
 
 Everything runs on CPU. The vision transformer executes once during feature
-extraction and never again during training — the trainable head is **≈6.6M
+extraction and never again during training the trainable head is **≈6.6M
 parameters** and fits in minutes, which is what makes a laptop viable.
 
 ---
@@ -390,7 +390,7 @@ chat session.
 Eight categories and their prevalence figures are transcribed from the project's
 source research. The research states the taxonomy has 12 categories but
 enumerates only 8; **the remaining four are reconstructed from the numbering
-gaps and are labelled provisional everywhere they appear** — in the API, in the
+gaps and are labelled provisional everywhere they appear** in the API, in the
 UI and in reports. They are never presented as published findings.
 
 ### Where the error corpus comes from
@@ -413,7 +413,7 @@ gives a check on the labeller:
 **The labeller is reliable on radiology and weak on histopathology free-text.**
 PathVQA answers are long descriptive phrases that curated term lists match
 poorly, and since PathVQA is 78% of the data it drags the aggregate down to ~47%
-coverage. This is a real limitation, not a rounding detail — see below.
+coverage. This is a real limitation, not a rounding detail see below.
 
 ---
 
@@ -425,7 +425,7 @@ coverage. This is a real limitation, not a rounding detail — see below.
 - **Open-ended accuracy is weak (41.5%).** The answer vocabulary covers only 83%
   of test answers; the remaining 17% are unreachable by construction and counted
   as wrong.
-- **VQA-RAD is the weakest split (41.9%)** — only ~1,620 training rows survive
+- **VQA-RAD is the weakest split (41.9%)** only ~1,620 training rows survive
   the image-grouped validation split, which is very little to learn from.
 - **Error-corpus labelling covers ~47% of errors.** The rest receive a fallback
   label routed by question form, marked `rule_confident: false` and reported
@@ -481,5 +481,5 @@ tests/                    safety, error-labelling, engine and E2E tests
 ## Credits
 
 B.Tech final year project, Department of CSE, KIET Group of Institutions.
-Mentor: Dr. Gaurav Dubey. Safety methodology — error taxonomy, τ = 0.60
-abstention threshold, Clinical Impact Score — follows his published research.
+Mentor: Dr. Gaurav Dubey. Safety methodology error taxonomy, τ = 0.60
+abstention threshold, Clinical Impact Score follows his published research.
