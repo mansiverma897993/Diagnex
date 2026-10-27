@@ -4,14 +4,12 @@ import fs from 'node:fs';
 // SYNOPSIS.md is the source of truth for this one-page PDF.
 const markdown = fs.readFileSync(new URL('./SYNOPSIS.md', import.meta.url), 'utf8');
 const sections = [];
-const meta = [];
 let title = '';
 let current = null;
 for (const raw of markdown.split(/\r?\n/)) {
   const line = raw.trim();
   if (!line) continue;
   if (line.startsWith('# ')) title = line.slice(2);
-  else if (line.startsWith('> ')) meta.push(line.slice(2));
   else if (line.startsWith('## ')) {
     current = { name: line.slice(3), lines: [] };
     sections.push(current);
@@ -33,7 +31,7 @@ const pale = [242, 247, 249];
 const left = 17;
 const right = 193;
 const width = right - left;
-let y = 54;
+let y = 43;
 
 const plain = (s) => s.replace(/\*\*/g, '').replace(/`/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
 
@@ -93,20 +91,15 @@ function table(lines) {
   y += 0.7;
 }
 
-// Formal title block.
+// Compact title block.
 doc.setFillColor(...navy);
-doc.rect(0, 0, 210, 47, 'F');
+doc.rect(0, 0, 210, 36, 'F');
 doc.setFillColor(...teal);
-doc.rect(0, 0, 5, 47, 'F');
-setFont(8.5, true, [169, 222, 229]);
-doc.text('B.TECH FINAL-YEAR PROJECT  /  PROJECT SYNOPSIS', left, 11.5);
+doc.rect(0, 0, 5, 36, 'F');
 setFont(24, true, [255, 255, 255]);
-doc.text(title, left, 24.5);
+doc.text(title, left, 17.5);
 setFont(10.2, false, [224, 236, 242]);
-doc.text('Medical visual question answering with calibrated abstention', left, 32);
-setFont(8.0, false, [224, 236, 242]);
-doc.text(meta[0], left, 38.2);
-doc.text(meta[1], left, 43.0);
+doc.text('Medical visual question answering with calibrated abstention', left, 26);
 
 for (const section of sections) {
   sectionHeading(section.name);
@@ -127,12 +120,7 @@ for (const section of sections) {
   }
 }
 
-if (y > 278) throw new Error(`Synopsis overflows one page: content ends at ${y.toFixed(1)} mm`);
-doc.setDrawColor(206, 221, 227);
-doc.line(left, 282, right, 282);
-setFont(7.7, false, muted);
-doc.text('DIAGNEX  |  Research prototype; not for clinical diagnosis', left, 287);
-doc.text('1 / 1', right, 287, { align: 'right' });
+if (y > 280) throw new Error(`Synopsis overflows one page: content ends at ${y.toFixed(1)} mm`);
 
 const out = new URL('./SYNOPSIS.pdf', import.meta.url);
 fs.writeFileSync(out, doc.output(), 'binary');

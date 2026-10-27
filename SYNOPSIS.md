@@ -1,8 +1,5 @@
 # DIAGNEX
 
-> B.Tech, Computer Science and Engineering | KIET Group of Institutions
-> Mansi Verma | Mentor: Dr. Gaurav Dubey
-
 ## Abstract
 Radiologists face increasing image-review workloads, while medical visual question-answering models can return confident but incorrect answers. Diagnex is a research prototype that accepts a medical still image and a natural-language question, predicts an answer, and may withhold it through a traffic-light uncertainty policy. The aim is to study whether calibrated confidence and abstention can make benchmark responses more transparent. It is an educational and research aid, not a diagnostic system or a substitute for a radiologist.
 
