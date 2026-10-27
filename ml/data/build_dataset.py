@@ -159,6 +159,46 @@ def assign_val(rows: list[dict], rng: random.Random) -> None:
             r["split"] = "val"
 
 
+def enforce_image_disjoint_splits(rows: list[dict]) -> None:
+    """Keep every image in exactly one split within each dataset.
+
+    The published VQA-RAD question split reuses images across train and test.
+    Repartition its images deterministically so a test image is genuinely unseen.
+    Other datasets retain their supplied splits; any duplicated image is moved
+    wholly to the most protected split (test, then val, then train).
+    """
+    by_dataset: dict[str, list[dict]] = {}
+    for row in rows:
+        by_dataset.setdefault(row["dataset"], []).append(row)
+
+    for dataset, subset in by_dataset.items():
+        if dataset == "vqa-rad":
+            images = sorted({row["image"] for row in subset})
+            random.Random(SEED).shuffle(images)
+            n_test = max(1, round(len(images) * 0.20))
+            n_val = max(1, round(len(images) * 0.10))
+            test_images = set(images[:n_test])
+            val_images = set(images[n_test:n_test + n_val])
+            for row in subset:
+                image = row["image"]
+                row["split"] = "test" if image in test_images else "val" if image in val_images else "train"
+        else:
+            priority = {"train": 0, "val": 1, "test": 2}
+            final = {}
+            for row in subset:
+                image, split = row["image"], row["split"]
+                if image not in final or priority[split] > priority[final[image]]:
+                    final[image] = split
+            for row in subset:
+                row["split"] = final[row["image"]]
+
+        image_splits: dict[str, set[str]] = {}
+        for row in subset:
+            image_splits.setdefault(row["image"], set()).add(row["split"])
+        if any(len(splits) != 1 for splits in image_splits.values()):
+            raise AssertionError(f"{dataset} contains images in multiple splits")
+
+
 # --- Per-dataset builders --------------------------------------------------
 
 
@@ -339,6 +379,17 @@ def main() -> int:
             continue
         rows = [json.loads(line) for line in shard.read_text(encoding="utf-8").splitlines() if line]
         all_rows.extend(rows)
+
+    if not all_rows:
+        log("no data built; aborting before writing manifest")
+        return 1
+
+    enforce_image_disjoint_splits(all_rows)
+
+    for name in BUILDERS:
+        rows = [r for r in all_rows if r["dataset"] == name]
+        if not rows:
+            continue
         splits = Counter(r["split"] for r in rows)
         report["datasets"][name] = {
             "status": "ok",
@@ -349,10 +400,6 @@ def main() -> int:
             "open": sum(1 for r in rows if r["answer_type"] == "open"),
         }
 
-    if not all_rows:
-        log("no data built; aborting before writing manifest")
-        return 1
-
     with MANIFEST.open("w", encoding="utf-8") as fh:
         for r in all_rows:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -360,6 +407,13 @@ def main() -> int:
     report["total_rows"] = len(all_rows)
     report["total_images"] = len({r["image"] for r in all_rows})
     report["splits"] = dict(Counter(r["split"] for r in all_rows))
+    report["split_protocol"] = "image-disjoint; VQA-RAD images repartitioned 70/10/20"
+    global_splits: dict[str, set[str]] = {}
+    for row in all_rows:
+        global_splits.setdefault(row["image"], set()).add(row["split"])
+    report["image_split_overlap"] = sum(len(splits) > 1 for splits in global_splits.values())
+    if report["image_split_overlap"]:
+        raise ValueError("cross-dataset image overlap across splits")
     report["modalities"] = dict(Counter(r["modality"] for r in all_rows).most_common())
     (DATA_ROOT / "build_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 

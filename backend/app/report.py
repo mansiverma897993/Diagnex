@@ -67,7 +67,7 @@ def summarise(
     if assessment.abstain:
         return (
             f"AI declined to answer this {label} question - {abstention_reason(assessment)}. "
-            "Referred to a doctor."
+            "Consult a qualified doctor."
         )
     return f'{label}: answered "{answer}" with {assessment.confidence:.0%} confidence ({assessment.band.value}).'
 
@@ -91,15 +91,12 @@ def compose(
             f"ANSWER WITHHELD. You asked: \"{question}\". The system will not stand "
             f"behind an answer about this {label} because {abstention_reason(assessment)}."
         )
-        lines.append(
-            "Published analysis of this error taxonomy found that abstaining below 60% "
-            "removes 51.1% of critical errors while preserving 91.8% of correct answers. "
-            "Withholding here is the system working as designed, not a malfunction."
-        )
+        lines.append("The answer was withheld by the model's safety rule. A clinician should review the image.")
     else:
         lines.append(
             f"You asked: \"{question}\". The model's answer is \"{answer}\", with "
-            f"{assessment.confidence:.0%} calibrated confidence ({assessment.band.value} band)."
+            f"{assessment.confidence:.0%} model confidence ({assessment.band.value} band). "
+            "This score is not the probability that a diagnosis is correct for an individual patient."
         )
         if assessment.band is Band.YELLOW:
             lines.append(
@@ -113,8 +110,8 @@ def compose(
     err = assessment.likely_error
     provisional = "" if err.is_published else " (category pending mentor confirmation)"
     lines.append(
-        f"Most likely failure mode if this answer is wrong: {err.name} "
-        f"[{err.code}, {err.risk.value} risk, {assessment.likely_error_prob:.0%} likely]"
+        f"Estimated failure mode if this answer is wrong: {err.name} "
+        f"[{err.code}, {err.risk.value} risk, model score {assessment.likely_error_prob:.0%}]"
         f"{provisional}. In plain terms: {err.plain_english} For example: {err.example}"
     )
 
@@ -122,9 +119,8 @@ def compose(
         lines.append(
             "DANGER ZONE FLAG: the model is confident enough to pass the safety gate, "
             "yet its most likely failure mode carries high clinical impact "
-            f"(expected impact score {assessment.expected_cis:.1f}/5.0). Published work "
-            "places 26.8% of all errors in exactly this confidently-wrong quadrant. "
-            "Independent confirmation is strongly advised."
+            f"(estimated impact score {assessment.expected_cis:.1f}/5.0). "
+            "Independent clinical review is needed."
         )
 
     if alternatives:

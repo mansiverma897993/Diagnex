@@ -77,8 +77,8 @@ def test_abstained_answer_is_not_serialised(engine, sample_rows):
         payload = result.to_dict()
         if result.assessment.abstain:
             assert payload["answer"] is None
-            assert "withheld_answer" in payload
-            assert json.dumps(payload).count(payload["withheld_answer"]) >= 1
+            assert "withheld_answer" not in payload
+            assert payload["alternatives"] == []
             return
     pytest.skip("no abstention occurred in the sampled rows")
 

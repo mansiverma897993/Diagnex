@@ -51,6 +51,14 @@ MODALITY_PROMPTS: dict[str, str] = {
     "pathology": "a histopathology microscopy slide stained with hematoxylin and eosin",
 }
 
+#: Contrast prompt for the medical-image gate. When an upload matches this
+#: better than every radiology modality, it is rejected as not a medical scan.
+NON_MEDICAL_PROMPT = "a photograph of everyday objects or a drawing, not a medical scan"
+
+#: An upload whose best class is the 'other' contrast, or whose top medical
+#: class is below this confidence, is treated as an inappropriate image.
+MEDICAL_GATE_THRESHOLD = 0.45
+
 
 class ArtifactsMissing(RuntimeError):
     """Raised when the engine cannot start because training has not been run."""
@@ -67,19 +75,15 @@ class Analysis:
 
     def to_dict(self) -> dict:
         d = {
-            "answer": self.answer,
+            "answer": None if self.assessment.abstain else self.answer,
             "confidence": round(self.confidence, 4),
-            "alternatives": [
+            "alternatives": [] if self.assessment.abstain else [
                 {"answer": a, "probability": round(p, 4)} for a, p in self.alternatives
             ],
             "modality": self.modality,
             "modality_confidence": round(self.modality_confidence, 4),
             "safety": self.assessment.to_dict(),
         }
-        # The UI must never render an answer the gate refused.
-        if self.assessment.abstain:
-            d["answer"] = None
-            d["withheld_answer"] = self.answer
         return d
 
 
@@ -154,6 +158,11 @@ class DiagnexEngine:
         self._modality_keys = list(MODALITY_PROMPTS)
         self._modality_emb = _l2norm(emb)
 
+        with torch.no_grad():
+            gate_prompts = list(MODALITY_PROMPTS.values()) + [NON_MEDICAL_PROMPT]
+            gate_emb = self.clip.encode_text(self.tokenizer(gate_prompts)).float().numpy()
+        self._medical_gate_emb = _l2norm(gate_emb)
+
         self.self_check()
 
     def self_check(self) -> None:
@@ -206,6 +215,27 @@ class DiagnexEngine:
         probs = probs / probs.sum()
         best = int(probs.argmax())
         return self._modality_keys[best], float(probs[best])
+
+    def is_medical_image(self, image: Image.Image) -> tuple[bool, str, float]:
+        """Reject uploads that are not recognisable medical scans.
+
+        Returns (is_medical, modality, confidence). An upload that best matches
+        the NON_MEDICAL_PROMPT contrast, or that cannot match any radiology
+        modality above MEDICAL_GATE_THRESHOLD, is not suitable for analysis.
+        """
+        tensor = self.preprocess(image.convert("RGB")).unsqueeze(0)
+        with torch.no_grad():
+            emb = _l2norm(self.clip.encode_image(tensor).float().numpy())
+        sims = (emb @ self._medical_gate_emb.T)[0]
+        probs = np.exp(sims * 100.0 - (sims * 100.0).max())
+        probs = probs / probs.sum()
+        best = int(probs.argmax())
+        keys = list(MODALITY_PROMPTS) + ["other"]
+        modality = keys[best]
+        confidence = float(probs[best])
+        if modality == "other" or confidence < MEDICAL_GATE_THRESHOLD:
+            return False, modality, confidence
+        return True, modality, confidence
 
     def analyze(self, image: Image.Image, question: str, top_k: int = 4) -> Analysis:
         if not self._loaded:

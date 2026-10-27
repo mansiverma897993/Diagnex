@@ -217,6 +217,9 @@ function App() {
   // deliberately no fallback result to show in its place.
   const [analysisError, setAnalysisError] = useState(null);
 
+  // Surfaced when a selected file is not a recognisable medical scan.
+  const [uploadError, setUploadError] = useState(null);
+
   // Current Active Scan Result
   const [activeResult, setActiveResult] = useState(null);
   // Chat dialogue state (VQA)
@@ -418,6 +421,7 @@ function App() {
   const handleLoadSample = (sampleId) => {
     const sample = SAMPLE_CASES.find(c => c.id === sampleId);
     if (sample) {
+      setUploadError(null);
       setSelectedFile({
         name: sample.name,
         size: sample.size,
@@ -430,11 +434,33 @@ function App() {
     }
   };
 
+  // Only medical imaging files are accepted: X-ray/CT/MRI/ultrasound/pathology
+  // scans as PNG/JPG/TIFF/WebP/BMP or DICOM. Anything else is rejected up front,
+  // and the backend enforces the same rule with its own modality gate.
+  const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/tiff', 'image/bmp', 'image/webp', 'application/dicom'];
+  const ALLOWED_IMAGE_EXT = ['png', 'jpg', 'jpeg', 'tif', 'tiff', 'bmp', 'webp', 'dcm', 'dicom'];
+
   // Handle manual file selection simulation
   const handleFileChange = (e) => {
+    setUploadError(null);
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const isImg = file.type.startsWith('image/');
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      const isAllowed =
+        ALLOWED_IMAGE_TYPES.includes(file.type) || ALLOWED_IMAGE_EXT.includes(ext);
+
+      if (!isAllowed) {
+        setUploadError(
+          'Inappropriate file: only medical imaging reports are accepted ' +
+          '(X-ray, CT, MRI, ultrasound or pathology) as PNG, JPG, TIFF, WebP, ' +
+          'BMP or DICOM. Please upload a valid scan image.'
+        );
+        setSelectedFile(null);
+        e.target.value = '';
+        return;
+      }
+
+      const isImg = file.type.startsWith('image/') || ALLOWED_IMAGE_EXT.includes(ext);
       const previewUrl = isImg ? URL.createObjectURL(file) : null;
       setSelectedFile({
         name: file.name,
@@ -1392,7 +1418,7 @@ function App() {
               <input
                 type="file"
                 style={{ display: 'none' }}
-                accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                accept="image/png,image/jpeg,image/tiff,image/bmp,image/webp,application/dicom,.dcm,.dicom"
                 onChange={handleFileChange}
               />
               <div className="upload-icon-box">
@@ -1400,9 +1426,24 @@ function App() {
               </div>
               <h4 style={{ margin: '0 0 6px 0', fontSize: '0.95rem' }}>Drag & Drop file or Browse</h4>
               <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                Supports high-resolution PNG, JPG, WebP, PDF, or DOC/DOCX.
+                Medical scans only: X-ray, CT, MRI, ultrasound or pathology as PNG, JPG, TIFF, WebP or DICOM.
               </p>
             </label>
+            {uploadError && (
+              <div
+                style={{
+                  marginTop: '12px',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  background: 'var(--color-red-bg)',
+                  padding: '12px 14px',
+                  borderRadius: '10px'
+                }}
+              >
+                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-red)', display: 'flex', alignItems: 'flex-start', gap: '8px', lineHeight: 1.5 }}>
+                  <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} /> {uploadError}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Preset samples trigger */}

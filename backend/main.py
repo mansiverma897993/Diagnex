@@ -27,6 +27,7 @@ import threading
 import time
 import uuid
 from collections import Counter, deque
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -61,10 +62,37 @@ SUGGESTED_QUESTIONS: dict[str, list[str]] = {
     "unknown": ["is there an abnormality?", "which organ is shown?"],
 }
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Preload the engine at startup.
+
+    The frozen BiomedCLIP towers take minutes to build on CPU. Loading them
+    lazily on the first request made that request time out and surfaced as an
+    intermittent "service unavailable" - the model was still constructing. With
+    a startup preload the server only begins accepting requests once real
+    inference is available, so nothing ever blocks on a cold start.
+    """
+    try:
+        engine = get_engine()
+        engine.load()
+        logger.info(
+            "engine preloaded: %d-word answer vocabulary, temperature %.4f",
+            len(engine.vocab),
+            engine.temperature,
+        )
+    except ArtifactsMissing as exc:
+        logger.warning("engine not preloaded (artifacts missing): %s", exc)
+    except Exception:  # noqa: BLE001
+        logger.exception("engine preload failed; endpoints will retry lazily")
+    yield
+
+
 app = FastAPI(
     title="Diagnex Clinical VQA API",
     version="2.0.0",
     description="Safety-gated medical visual question answering. Screening aid, not a diagnosis.",
+    lifespan=lifespan,
 )
 
 # The dev frontend runs on Vite's default ports. Tighten before any deployment.
@@ -199,10 +227,12 @@ def health():
 
     import json
 
-    metrics_path = REPO_ROOT / "ml" / "artifacts" / "vqa_metrics.json"
+    metrics_path = engine.artifact_dir / "vqa_metrics.json"
     metrics = json.loads(metrics_path.read_text(encoding="utf-8")) if metrics_path.exists() else {}
     return {
         "ready": True,
+        "model": metrics.get("model", "BiomedCLIP VQA fusion head"),
+        "split_protocol": metrics.get("split_protocol", "legacy; inspect PROJECT_STATUS.md"),
         "answer_vocabulary": len(engine.vocab),
         "temperature": engine.temperature,
         "thresholds": {"abstain": 0.60, "green": 0.85},
@@ -269,14 +299,32 @@ async def upload(
 ):
     engine = _engine_or_503()
 
-    data = await file.read()
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, f"file exceeds {MAX_UPLOAD_BYTES // 2**20} MB limit")
+
+    if question is not None and len(question) > 500:
+        raise HTTPException(422, "question must be at most 500 characters")
 
     try:
         intake = read_upload(data)
     except UnreadableImage as exc:
         raise HTTPException(400, f"could not read the uploaded file: {exc}") from exc
+
+    # Medical-image gate: only recognisable radiology / pathology scans pass.
+    # A random photo or drawing is refused, never scored.
+    is_medical, modality, mconf = engine.is_medical_image(intake.image)
+    if not is_medical:
+        logger.warning(
+            "rejected upload classified as %s (%.0f%%)",
+            modality, mconf * 100,
+        )
+        raise HTTPException(
+            400,
+            "Inappropriate image: this file does not look like a medical scan "
+            "(X-ray, CT, MRI, ultrasound or pathology). Only medical imaging "
+            "reports can be analysed.",
+        )
 
     if intake.stripped_fields:
         logger.info("stripped %d identifying DICOM fields", len(intake.stripped_fields))
@@ -291,11 +339,12 @@ async def upload(
     _record_outcome(analysis.assessment)
 
     session_id = f"api-{uuid.uuid4().hex[:12]}"
+    display_name = "Uploaded medical image"
     sessions.put(
         session_id,
         Session(
             image=intake.image,
-            filename=file.filename or "upload",
+            filename=display_name,
             modality=analysis.modality,
             created=time.time(),
         ),
@@ -330,14 +379,13 @@ async def upload(
     return {
         "id": session_id,
         "session_id": session_id,
-        "name": file.filename or "upload",
+        "name": display_name,
         "type": category or report.modality_label(analysis.modality),
         "size": f"{len(data) / 2**20:.1f} MB",
         # The frontend reads `confidence` as an integer percentage.
         "confidence": round(analysis.confidence * 100),
         "status": assessment.band.value,
         "answer": body["answer"],
-        "withheld_answer": body.get("withheld_answer"),
         "diagnosis": report.compose(
             question=asked,
             answer=analysis.answer if not assessment.abstain else None,
@@ -345,7 +393,7 @@ async def upload(
             modality=analysis.modality,
             modality_confidence=analysis.modality_confidence,
             declared_modality=intake.declared_modality,
-            alternatives=analysis.alternatives,
+            alternatives=analysis.alternatives if not assessment.abstain else [],
         ),
         "summary": report.summarise(
             question=asked,
@@ -400,7 +448,7 @@ async def chat(req: ChatRequest):
     else:
         reply = (
             f'Answer: "{analysis.answer}" ({analysis.confidence:.0%} confidence, '
-            f"{assessment.band.value}). If this is wrong, the most likely reason is "
+            f"{assessment.band.value}). If this is wrong, one estimated failure mode is "
             f"{assessment.likely_error.name.lower()} - {assessment.likely_error.plain_english} "
             f"{report.DISCLAIMER}"
         )
@@ -411,5 +459,7 @@ async def chat(req: ChatRequest):
         "confidence": round(analysis.confidence * 100),
         "status": assessment.band.value,
         "safety": assessment.to_dict(),
-        "alternatives": [{"answer": a, "probability": round(p, 4)} for a, p in analysis.alternatives],
+        "alternatives": [] if assessment.abstain else [
+            {"answer": a, "probability": round(p, 4)} for a, p in analysis.alternatives
+        ],
     }

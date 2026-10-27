@@ -41,13 +41,13 @@ import torch.nn.functional as F  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from backend.app import taxonomy  # noqa: E402
+from backend.app import safety, taxonomy  # noqa: E402
 from ml.eval.error_rules import agreement_against_slake, label_error  # noqa: E402
 from ml.train.train_vqa import VQAHead  # noqa: E402
 
 DATA_ROOT = Path(os.environ.get("DIAGNEX_DATA", r"D:\diagnex\data"))
 FEATURE_DIR = DATA_ROOT / "features"
-ARTIFACT_DIR = REPO_ROOT / "ml" / "artifacts"
+ARTIFACT_DIR = Path(os.environ.get("DIAGNEX_ARTIFACTS", REPO_ROOT / "ml" / "artifacts"))
 
 
 def log(msg: str) -> None:
@@ -215,9 +215,21 @@ def main() -> int:
         y = np.array([code_to_idx[e["error_code"]] for e in errs], dtype=np.int64)
         return torch.from_numpy(x), torch.from_numpy(y)
 
-    xtr, ytr = featurise(train_err)
+    # Select the checkpoint on a subset of validation errors, grouped by image.
+    # The test errors must be evaluated once only, after selection is complete.
+    image_ids = sorted({e["_img"] for e in train_err})
+    rng = np.random.default_rng(20260813)
+    rng.shuffle(image_ids)
+    selection_images = set(image_ids[:max(1, round(len(image_ids) * 0.20))])
+    fit_err = [e for e in train_err if e["_img"] not in selection_images]
+    select_err = [e for e in train_err if e["_img"] in selection_images]
+    if not fit_err or not select_err:
+        raise ValueError("not enough validation images to split error-predictor training")
+
+    xtr, ytr = featurise(fit_err)
+    xval, yval = featurise(select_err)
     xte, yte = featurise(test_err)
-    log(f"predictor inputs: train {tuple(xtr.shape)}, test {tuple(xte.shape)}")
+    log(f"predictor inputs: train {tuple(xtr.shape)}, selection {tuple(xval.shape)}, test {tuple(xte.shape)}")
 
     net = torch.nn.Sequential(
         torch.nn.Linear(xtr.shape[1], args.hidden),
@@ -243,18 +255,72 @@ def main() -> int:
         if epoch % 5 == 0 or epoch == args.epochs:
             net.eval()
             with torch.no_grad():
-                acc = float((net(xte).argmax(1) == yte).float().mean()) if len(yte) else float("nan")
+                acc = float((net(xval).argmax(1) == yval).float().mean())
             if acc > best:
                 best, best_state = acc, {k: v.clone() for k, v in net.state_dict().items()}
-            log(f"  epoch {epoch:3d}  loss {float(loss):.4f}  test_acc {acc:.4f}")
+            log(f"  epoch {epoch:3d}  loss {float(loss):.4f}  selection_acc {acc:.4f}")
 
     if best_state:
         net.load_state_dict(best_state)
 
+    net.eval()
+    with torch.no_grad():
+        test_accuracy = float((net(xte).argmax(1) == yte).float().mean()) if len(yte) else None
+
+    # Evaluate the *complete* response policy on every test question. This is
+    # distinct from the error-predictor accuracy above, which conditions on a
+    # wrong answer and measures agreement with rule-derived labels.
+    test_rows, test_probs, test_conf, test_pred, test_ii, test_ti = predict("test")
+    dist_all = distribution_features(test_probs)
+    policy_bands = []
+    for start in range(0, len(test_rows), 256):
+        end = min(start + 256, len(test_rows))
+        answer_onehot = np.zeros((end - start, n_answers), dtype=np.float32)
+        answer_onehot[np.arange(end - start), test_pred[start:end]] = 1.0
+        inputs = np.hstack([
+            img_feats[test_ii[start:end]],
+            txt_combined[test_ti[start:end]],
+            dist_all[start:end],
+            answer_onehot,
+        ]).astype(np.float32)
+        with torch.no_grad():
+            error_probs = F.softmax(net(torch.from_numpy(inputs)), dim=1).numpy()
+        for j, probabilities in enumerate(error_probs):
+            assessment = safety.assess(
+                float(test_conf[start + j]),
+                {code: float(p) for code, p in zip(taxonomy.CODES, probabilities)},
+            )
+            policy_bands.append(assessment.band.value)
+
+    correct = np.array([
+        vocab[int(p)] == row["answer_norm"] for row, p in zip(test_rows, test_pred)
+    ], dtype=bool)
+    bands = np.asarray(policy_bands)
+
+    def policy_metrics(mask):
+        eligible = bands[mask] != "RED"
+        right = correct[mask]
+        return {
+            "n": int(mask.sum()),
+            "answer_rate": float(eligible.mean()),
+            "accuracy_when_answered": float(right[eligible].mean()) if eligible.any() else None,
+            "wrong_answers_shown": int((eligible & ~right).sum()),
+            "band_counts": {band: int((bands[mask] == band).sum()) for band in ("GREEN", "YELLOW", "RED")},
+        }
+
+    policy_test = policy_metrics(np.ones(len(test_rows), dtype=bool))
+    policy_test["by_dataset"] = {
+        dataset: policy_metrics(np.array([row["dataset"] == dataset for row in test_rows]))
+        for dataset in sorted({row["dataset"] for row in test_rows})
+    }
+
     metrics = {
-        "n_train_errors": len(train_err),
+        "n_train_errors": len(fit_err),
+        "n_selection_errors": len(select_err),
         "n_test_errors": len(test_err),
-        "predictor_test_accuracy": best,
+        "predictor_selection_accuracy": best,
+        "predictor_test_accuracy": test_accuracy,
+        "policy_test": policy_test,
         "rule_coverage": 1 - unconfident / max(1, total),
         "slake_agreement": agreement,
         "error_distribution": {c: dist_counts.get(c, 0) / max(1, total) for c in taxonomy.CODES},
@@ -280,7 +346,7 @@ def main() -> int:
 
     log("=" * 60)
     log(f"error corpus: {len(train_err) + len(test_err)} labelled errors -> data/error_corpus.jsonl")
-    log(f"predictor test accuracy: {best:.4f} over 12 classes (chance = {1/12:.3f})")
+    log(f"predictor test accuracy: {test_accuracy:.4f} over 12 classes (chance = {1/12:.3f})")
     return 0
 
 

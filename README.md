@@ -1,8 +1,14 @@
-# Diagnex : AI Medical Imaging & Radiologist VQA Portal
+# Diagnex: AI Medical Imaging & Radiologist VQA Portal
 
-Upload an X-ray, CT, MRI,
+> **Research prototype status (27 October 2026):** The figures below use the
+> corrected image-disjoint split. A previous run reused 183 VQA-RAD images
+> between training and test and has been superseded. See
+> [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current model and remaining
+> work. No model output is a definitive medical finding.
+
+**Safety-gated medical Visual Question Answering.** Upload an X-ray, CT, MRI,
 ultrasound or pathology slide, ask a question in natural language, and get an
-answer **together with an honest account of how much to trust it** or a
+answer **together with an honest account of how much to trust it** — or a
 refusal, when the model should not be trusted.
 
 > **Screening aid for educational use. Not a medical diagnosis, and not a
@@ -11,8 +17,8 @@ refusal, when the model should not be trusted.
 The premise, taken from the project's source research: medical VQA models are
 *dangerously overconfident when wrong*, with **26.8% of errors** landing in a
 "clinical danger zone" where the model is simultaneously incorrect and highly
-confident. The point of this system is not to be right every time no published
-medical VQA model is but to **know when it might be wrong, and say so**.
+confident. This prototype estimates uncertainty and can abstain, but it cannot
+reliably identify every wrong answer.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-18%2B-339933?logo=nodedotjs&logoColor=white)
@@ -25,20 +31,20 @@ medical VQA model is but to **know when it might be wrong, and say so**.
 
 ## Features
 
-- **Multi-modal intake** : X-ray, CT, MRI, ultrasound and histopathology slides,
+- **Multi-modal intake** — X-ray, CT, MRI, ultrasound and histopathology slides,
   uploaded as PNG/JPEG/TIFF or native **DICOM**.
-- **Natural-language VQA** : closed (yes/no) and open-ended questions answered
-  over a 3,698-word medical answer vocabulary.
-- **Honest uncertainty gate** : a traffic-light (GREEN / YELLOW / RED) that
+- **Natural-language VQA** — closed (yes/no) and open-ended questions answered
+  over a 3,693-answer medical vocabulary.
+- **Honest uncertainty gate** — a traffic-light (GREEN / YELLOW / RED) that
   withholds answers rather than bluff, driven by *calibrated* confidence **and**
   a predicted failure mode.
-- **Follow-up chat** : de-identified pixels live in a TTL-bounded in-memory
+- **Follow-up chat** — de-identified pixels live in a TTL-bounded in-memory
   session cache (30 min), so you can ask a series of questions about one scan.
-- **Zero fabrication by design** : every report sentence is derived from model
+- **Zero fabrication by design** — every report sentence is derived from model
   output. Withheld answers are removed from the API response body, not flagged.
-- **De-identification at the boundary** : DICOM tags and EXIF are stripped
+- **De-identification at the boundary** — DICOM tags and EXIF are stripped
   before pixels reach any other code; nothing is written to disk.
-- **Runs on CPU** : the vision transformer is frozen and executed once during
+- **Runs on CPU** — the vision transformer is frozen and executed once during
   feature extraction, so the whole system trains and serves on a laptop.
 
 ---
@@ -65,9 +71,10 @@ Confidence alone is not sufficient, so **two signals** drive every decision:
 1. **Calibrated confidence.** A raw softmax is systematically overconfident; a
    0.60 cut on uncalibrated scores would not mean what the research says it
    means. A temperature fitted on the validation split (see
-   `ml/train/train_vqa.py`) brings the calibration error down to **0.083**.
-2. **A 12-way error-type prediction** *if* this answer is wrong, how is it
-   most likely wrong? which feeds an expected **Clinical Impact Score**.
+   `ml/train/train_vqa.py`) brought test calibration error to **0.073** in the
+   current image-disjoint evaluation.
+2. **A 12-way error-type prediction** — *if* this answer is wrong, how is it
+   most likely wrong? — which feeds an expected **Clinical Impact Score**.
 
 The second signal is what separates this from a plain threshold:
 
@@ -87,7 +94,7 @@ tumour. That is the whole idea.
 | 🟡 YELLOW | 60–85%, or GREEN downgraded by a high-risk failure mode | Answer shown, verify with a doctor |
 | 🔴 RED | < 60%, or a likely CRITICAL failure mode | **Answer withheld**, doctor finder shown |
 
-A withheld answer is *removed from the API response body*, not merely flagged
+A withheld answer is *removed from the API response body*, not merely flagged —
 the client cannot render what it was never sent.
 
 **Danger zone.** When the model is confident enough to pass the gate but its
@@ -98,41 +105,41 @@ is the confidently-wrong quadrant the research places 26.8% of errors in.
 
 ## What the model actually achieves
 
-Measured on a held-out test split of **8,231 question–answer pairs**. These are
-real numbers from `ml/artifacts/vqa_metrics.json`, reproducible with the
-pipeline in [Run it locally](#run-it-locally).
+Measured on **8,220 question–answer pairs**, with every test image excluded
+from training and validation. Values come from `ml/artifacts/vqa_metrics.json`.
 
 | Metric | Result |
 | :--- | ---: |
-| Closed questions (yes/no) | **85.5%** |
-| Open-ended questions | 41.5% |
-| Overall | 62.8% |
-| Calibration error (ECE) | **0.083** after temperature scaling |
+| Closed questions (yes/no) | 85.7% |
+| Open-ended questions | 40.3% |
+| Overall | 62.3% |
+| Calibration error (ECE) | 0.073 after temperature scaling |
 
 Per dataset:
 
 | Dataset | n | Overall | Closed | Open |
 | :--- | ---: | ---: | ---: | ---: |
-| SLAKE | 1,061 | **83.5%** | 88.5% | 80.9% |
-| PathVQA | 6,719 | 60.9% | 86.8% | 34.9% |
-| VQA-RAD | 451 | 41.9% | 63.3% | 15.0% |
+| SLAKE | 1,061 | 83.7% | 87.6% | 81.6% |
+| PathVQA | 6,719 | 59.9% | 86.7% | 33.1% |
+| VQA-RAD | 440 | 46.6% | 70.0% | 13.7% |
 
-### The abstention trade-off the reason this project exists
+### The abstention trade-off — the reason this project exists
 
-Withholding low-confidence answers is what converts a 62.8%-accurate model into
-a system that is safe to put in front of a patient:
+Withholding low-confidence answers changes the benchmark accuracy among the
+questions the model answers. It has not established patient safety:
 
 | Threshold | Answers | Accuracy when it answers | Errors removed |
 | :--- | ---: | ---: | ---: |
-| no gate | 100% | 62.8% | — |
-| τ = 0.50 | 75.0% | 78.6% | 57.0% |
-| **τ = 0.60** | **69.6%** | **81.9%** | **66.1%** |
-| τ = 0.70 | 65.1% | 84.5% | 72.9% |
-| τ = 0.85 | 56.7% | 89.0% | 83.2% |
+| no gate | 100% | 62.3% | — |
+| τ = 0.50 | 71.1% | 81.8% | 65.7% |
+| **τ = 0.60** | **66.4%** | **84.2%** | **72.1%** |
+| τ = 0.70 | 61.8% | 86.8% | 78.4% |
+| τ = 0.85 | 54.2% | 90.6% | 86.5% |
 
-At the published threshold of τ = 0.60 the system declines about three questions
-in ten, and is right **81.9%** of the time on the rest a 19-point improvement
-over answering everything.
+At τ = 0.60, the confidence-only rule answers 66.4% of test questions and
+is right on 84.2% of those answers. The deployed traffic-light rule also uses
+the experimental error predictor: it answers 43.7% and is right on 83.7% of
+those answers, leaving **585 incorrect answers shown** on this benchmark.
 
 ---
 
@@ -168,7 +175,7 @@ flowchart TB
     subgraph ENG["Inference engine  (backend/app/engine.py)"]
         VIT["BiomedCLIP ViT-B/16 · frozen<br/>1536-d image embedding"]
         TXT["BiomedCLIP text + TF-IDF n-grams<br/>512-d + sparse question embedding"]
-        FUSE["Fusion head  [i ; t ; i×t]<br/>→ answer over 3,698-word vocab"]
+        FUSE["Fusion head  [i ; t ; i×t]<br/>→ answer over 3,693-answer vocab"]
         CAL["Temperature scaling<br/>calibrated confidence"]
         ERR["12-way error-type predictor<br/>→ Clinical Impact Score"]
         MOD["Zero-shot modality detection"]
@@ -207,7 +214,7 @@ Two design choices worth explaining:
   that a concatenation-only head scores well while barely consulting the image.
   The multiplicative term forces image and question to agree.
 - **TF-IDF alongside the CLIP text embedding.** Contrastive text encoders
-  represent negation poorly "is there a mass" and "is there *no* mass" sit
+  represent negation poorly — "is there a mass" and "is there *no* mass" sit
   close together in CLIP space. Since negation is itself error category 4.1, the
   head needs a representation that separates them.
 
@@ -236,7 +243,7 @@ flowchart LR
 ```
 
 Everything runs on CPU. The vision transformer executes once during feature
-extraction and never again during training the trainable head is **≈6.6M
+extraction and never again during training — the trainable head is **≈6.6M
 parameters** and fits in minutes, which is what makes a laptop viable.
 
 ---
@@ -390,7 +397,7 @@ chat session.
 Eight categories and their prevalence figures are transcribed from the project's
 source research. The research states the taxonomy has 12 categories but
 enumerates only 8; **the remaining four are reconstructed from the numbering
-gaps and are labelled provisional everywhere they appear** in the API, in the
+gaps and are labelled provisional everywhere they appear** — in the API, in the
 UI and in reports. They are never presented as published findings.
 
 ### Where the error corpus comes from
@@ -398,7 +405,7 @@ UI and in reports. They are never presented as published findings.
 The mentor's 1,975-error annotated dataset was not available, so the corpus is
 generated instead: run the trained model over held-out data, take every wrong
 prediction, and classify *how* it was wrong using deterministic, inspectable
-rules (`ml/eval/error_rules.py`). This yields ~5,885 labelled errors.
+rules (`ml/eval/error_rules.py`). This yields 5,932 rule-labelled or fallback-labelled errors.
 
 Its quality is measured rather than assumed. SLAKE annotates every question with
 a `content_type` assigned by its authors independently of this project, which
@@ -406,32 +413,32 @@ gives a check on the labeller:
 
 | Dataset | Rule coverage | Independent agreement |
 | :--- | ---: | ---: |
-| SLAKE | 88% | 63.0% |
-| VQA-RAD | 76% | — |
-| PathVQA | 42% | — |
+| SLAKE | 88% | 63.9% |
+| VQA-RAD | 70% | — |
+| PathVQA | 40% | — |
 
-**The labeller is reliable on radiology and weak on histopathology free-text.**
+**The labeller has limited coverage, especially on histopathology free-text.**
 PathVQA answers are long descriptive phrases that curated term lists match
-poorly, and since PathVQA is 78% of the data it drags the aggregate down to ~47%
-coverage. This is a real limitation, not a rounding detail see below.
+poorly, and since PathVQA is 78% of the data it drags the aggregate down to 44.9%
+coverage. This is a real limitation, not a rounding detail — see below.
 
 ---
 
 ## Honest limitations
 
-- **This is not a diagnostic tool and never will be at this accuracy.** 62.8%
-  overall, 41.9% on VQA-RAD. The safety gate is what makes it defensible, not
-  the raw accuracy.
-- **Open-ended accuracy is weak (41.5%).** The answer vocabulary covers only 83%
-  of test answers; the remaining 17% are unreachable by construction and counted
+- **This is not a diagnostic tool at this accuracy.** It scores 62.3% overall
+  and 46.6% on VQA-RAD. The traffic-light policy still shows 585 wrong answers
+  on the held-out benchmark.
+- **Open-ended accuracy is weak (40.3%).** The answer vocabulary covers 87.3%
+  of test answers; the remaining 12.7% are unreachable by construction and counted
   as wrong.
-- **VQA-RAD is the weakest split (41.9%)** only ~1,620 training rows survive
-  the image-grouped validation split, which is very little to learn from.
-- **Error-corpus labelling covers ~47% of errors.** The rest receive a fallback
+- **VQA-RAD is the weakest split (46.6%)** — only 1,574 training rows remain
+  after image-disjoint splitting, which is very little to learn from.
+- **Error-corpus labelling covers 44.9% of errors.** The rest receive a fallback
   label routed by question form, marked `rule_confident: false` and reported
   separately rather than hidden.
-- **The error-type predictor scores ~62.9%** over 12 classes (chance ≈ 8.3%).
-  Useful, not authoritative.
+- **The error-type predictor scores 59.3%** against rule-derived labels over
+  12 classes (chance ≈ 8.3%). Its output is not a validated clinical risk score.
 - **Our error distribution differs from the published aggregate**, mostly
   because our training mix is 78% PathVQA and the published aggregate is not.
   Comparison is done per dataset in `ml/eval/mine_errors.py`, which is the
@@ -481,5 +488,6 @@ tests/                    safety, error-labelling, engine and E2E tests
 ## Credits
 
 B.Tech final year project, Department of CSE, KIET Group of Institutions.
-Mentor: Dr. Gaurav Dubey. Safety methodology error taxonomy, τ = 0.60
-abstention threshold, Clinical Impact Score follows his published research.
+Mentor: Dr. Gaurav Dubey. Safety methodology — error taxonomy, τ = 0.60
+abstention threshold, Clinical Impact Score — follows his published research.
+

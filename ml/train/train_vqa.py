@@ -52,7 +52,7 @@ from backend.app import lexicon  # noqa: E402
 
 DATA_ROOT = Path(os.environ.get("DIAGNEX_DATA", r"D:\diagnex\data"))
 FEATURE_DIR = DATA_ROOT / "features"
-ARTIFACT_DIR = REPO_ROOT / "ml" / "artifacts"
+ARTIFACT_DIR = Path(os.environ.get("DIAGNEX_ARTIFACTS", REPO_ROOT / "ml" / "artifacts"))
 
 SEED = 20260813
 
@@ -170,6 +170,15 @@ def main() -> int:
         return 1
 
     rows = [json.loads(l) for l in manifest.read_text(encoding="utf-8").splitlines() if l]
+    image_splits: dict[str, set[str]] = {}
+    for row in rows:
+        image_splits.setdefault(row["image"], set()).add(row["split"])
+    overlapping = sum(len(splits) > 1 for splits in image_splits.values())
+    if overlapping:
+        raise ValueError(
+            f"{overlapping} images occur in multiple splits; rebuild the manifest "
+            "with ml/data/build_dataset.py before training"
+        )
     img_feats = np.load(FEATURE_DIR / "images.npy")
     txt_feats = np.load(FEATURE_DIR / "questions.npy")
     img_index = json.loads((FEATURE_DIR / "image_index.json").read_text(encoding="utf-8"))
@@ -323,6 +332,10 @@ def main() -> int:
     test_correct = (test_pred == te_y).numpy().astype(float)
 
     metrics: dict = {
+        "model": "frozen BiomedCLIP features + trained VQA fusion head",
+        "split_protocol": "image-disjoint within and across datasets",
+        "image_split_overlap": overlapping,
+        "dataset_balanced_sampling": args.balance_datasets,
         "n_test": len(te_rows),
         "overall_accuracy": float(test_correct.mean()),
         "temperature": temperature,

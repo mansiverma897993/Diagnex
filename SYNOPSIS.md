@@ -1,36 +1,33 @@
-# 🧬 PROJECT SYNOPSIS: DIAGNEX
+# DIAGNEX: Project Synopsis
 
-## 1. Project Title & Overview
-**DIAGNEX: Full-Stack AI-Assisted Medical Imaging & Visual Question Answering (VQA) Portal**
+## Overview
 
-Diagnex operates as an intelligent digital radiologist assistant that analyzes complex medical images and answers diagnostic questions instantly in natural language.
+Diagnex is a research prototype for medical visual question answering. A user uploads a still image and asks a question; the model can answer or abstain using a traffic-light policy. Its responses are not medical diagnoses and require review by a qualified clinician.
 
----
+## Implementation
 
-## 2. The Problem: Overburdened Radiologists & Unsafe AI Models
-Interpretation of medical scans (X-Rays, MRIs, CTs, and Ultrasounds) requires certified experts. Due to a global shortage of clinical radiologists, patient wait times for critical diagnostics have increased. While deep learning models offer a potential solution for automation, typical AI models are prone to hallucinating predictions when presented with low-resolution, noisy, or atypical inputs. Generating false positive or false negative results can lead to incorrect treatments, making unguarded AI unsafe for clinical diagnostics.
+- **Frontend:** React and Vite with image upload, chat, traffic-light result, and PDF report export.
+- **Backend:** FastAPI endpoints for upload, follow-up questions, health, taxonomy, and aggregate counters. Supported still-image inputs include PNG, JPEG, TIFF, and DICOM. Session images are kept in a capped in-memory store for 30 minutes.
+- **Model:** Frozen BiomedCLIP image and text encoders, TF-IDF question features, and a trained answer-classification fusion head. This is not the DenseNet + ViT + BioClinicalBERT CrossGate architecture proposed in the source material.
+- **Data:** 41,908 question-answer pairs and 5,244 images from public VQA-RAD, SLAKE, and PathVQA datasets. The current split is image-disjoint within and across datasets.
+- **Safety policy:** Temperature scaling, confidence thresholds, and an experimental 12-class error predictor trained from rule-derived labels. The predictor is not a validated clinical risk score. Red-zone answers are withheld from the API response.
 
----
+The saved model artifacts are loaded at startup; normal backend use does not retrain the model. No database is needed for the anonymous, short-lived local prototype. Accounts, saved reports, or clinical audit records would require a database and a patient-data handling design.
 
-## 3. The Solution: Intelligent Multi-Modal Diagnosis & VQA
-Diagnex addresses these vulnerabilities by offering a complete multi-modal clinical portal. It provides a non-intrusive, anonymous experience to encourage honest usage and supports both closed (yes/no) and open-ended natural language medical queries. The platform integrates a standardized, clinically validated answer system to prevent ambiguous output. It handles files across multiple categories, including X-Rays, CT Scans, MRIs, Ultrasounds, and biochemical Pathology reports, where it dynamically renders structured metabolic tables (such as Hemoglobin, WBC count, and Cholesterol levels).
+## Held-out evaluation
 
----
+| Measure | Result |
+| --- | ---: |
+| Overall accuracy | 62.3% on 8,220 questions |
+| Yes/no accuracy | 85.7% |
+| Open-ended accuracy | 40.3% |
+| SLAKE / PathVQA / VQA-RAD | 83.7% / 59.9% / 46.6% |
+| Expected calibration error | 0.073 |
+| Confidence-only policy at 0.60 | Answers 66.4%; 84.2% accuracy on answered questions |
+| Full traffic-light policy | Answers 43.7%; 83.7% accuracy on answered questions; 585 incorrect answers shown |
 
-## 4. Safety Traffic Light Gating & Specialist Escalation
-- **GREEN ZONE (Certainty >= 85%)**: High confidence diagnosis. Displays full diagnostic findings and enables the VQA interactive chat widget so clinicians can ask follow-up questions.
-- **YELLOW ZONE (Certainty 70% - 84%)**: Moderate confidence. Renders findings but stamps them with prominent warning flags and disclaimers urging verification.
-- **RED ZONE (Certainty < 70%)**: Honest Uncertainty Trigger. The AI completely suppresses diagnostic outputs to safeguard the patient. Instead of guessing, it locks the screen and automatically triggers a Specialist Locator to route patients to nearby radiologists.
+The published CrossGate results in the attached material are claims about a different model and cannot be attributed to this implementation. This benchmark evaluation does not establish safety or accuracy on real patients, new hospitals, full imaging studies, or arbitrary questions. Before clinical use, Diagnex needs independent radiologist-labelled testing, false-negative analysis, domain-shift testing, and product security and regulatory review.
 
----
+For reproducibility and known limitations, see [PROJECT_STATUS.md](PROJECT_STATUS.md) and [README.md](README.md).
 
-## 5. Core Safety & Mathematical Gating Algorithms
-- **Monte Carlo Dropout (BNN)**: Performs 50+ forward passes at inference time with active dropout layers. The variance between outputs determines the model's epistemic uncertainty.
-- **Shannon Entropy Indexing**: Computes the entropy $H(X) = - \sum P(x_i) \log_2 P(x_i)$ of class probability vectors. High entropy triggers the Red Zone.
-- **Conformal Prediction Sets**: Enforces valid diagnostic intervals to guarantee statistical coverage under atypical scan parameters.
-- **Out-of-Distribution (OOD) VAEs**: Flags scan artifacts, high scanner noise, or foreign objects to prevent out-of-distribution hallucinations.
-
----
-
-## 6. Expected Clinical Impact
-Diagnex establishes a critical milestone in medical AI integration. By bridging the gap between deep learning capabilities and strict clinical safety thresholds, it safeguards patient health by avoiding wrong answers. It accelerates the diagnostic pipeline for high-certainty cases, reduces patient anxiety, and safely filters complex cases directly to certified healthcare practitioners.
+**B.Tech Final-Year Project · Department of CSE · KIET Group of Institutions · Mentor: Dr. Gaurav Dubey**

@@ -31,8 +31,8 @@ from . import taxonomy
 from .taxonomy import ErrorCategory, Risk
 
 # --- Thresholds ------------------------------------------------------------
-# Published in the research materials; do not tune these casually, the 51.1% /
-# 91.8% trade-off quoted throughout the project is measured at exactly tau=0.60.
+# Thresholds chosen for this research prototype. Their performance must be
+# measured on this model's held-out data; external research rates do not transfer.
 
 #: Abstention threshold. Below this the system refuses to answer.
 TAU_ABSTAIN = 0.60
@@ -110,8 +110,8 @@ class SafetyAssessment:
 
 
 _GREEN_MSG = (
-    "High confidence result. The AI is quite certain about this answer. "
-    "This is a screening aid, not a diagnosis."
+    "High model confidence on benchmark-style questions. This score does not "
+    "establish diagnostic certainty for an individual patient. Seek clinical review."
 )
 _YELLOW_MSG = (
     "Moderate confidence. We suggest verifying this with your doctor, "
